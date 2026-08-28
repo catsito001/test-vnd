@@ -35,8 +35,11 @@ String cameraErrorFullDetails(MobileScannerException error) {
     buffer.write('\nmessage: $message');
   }
   final details = error.errorDetails?.details;
-  if (details != null && details.trim().isNotEmpty) {
-    buffer.write('\ndetails:\n$details');
+  if (details != null) {
+    final detailsText = details.toString();
+    if (detailsText.trim().isNotEmpty) {
+      buffer.write('\ndetails:\n$detailsText');
+    }
   }
   return buffer.toString();
 }
