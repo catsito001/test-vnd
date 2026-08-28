@@ -197,7 +197,14 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> {
         children: [
           Positioned.fill(child: _buildCameraArea()),
           SafeArea(child: _buildTopBar()),
-          Align(alignment: Alignment.bottomCenter, child: _buildBottomArea()),
+          Align(
+            alignment: Alignment.bottomCenter,
+            // Parte 12 (fix): sin SafeArea acá, la tarjeta blanca (y el
+            // botón "Revisar Orden") quedaba pegada/tapada por la barra de
+            // navegación del sistema en teléfonos con navegación de 3
+            // botones (se ve en la captura que mandaste).
+            child: SafeArea(top: false, child: _buildBottomArea()),
+          ),
           _buildSideMenu(),
         ],
       ),
@@ -216,7 +223,67 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> {
     if (!_cameraPermissionGranted) {
       return _buildNoCameraPermissionState();
     }
-    return MobileScanner(controller: _controller, onDetect: _onDetect);
+    return MobileScanner(
+      controller: _controller,
+      onDetect: _onDetect,
+      // Parte 12 (fix): sin este `errorBuilder`, mobile_scanner cae en su
+      // pantalla de error por defecto —un ícono blanco de "!" sobre negro,
+      // sin texto ni forma de reintentar— cuando la cámara falla al
+      // iniciar por algo que NO es falta de permiso (permiso ya concedido
+      // pero, p. ej., el primer `start()` falla por timing justo después
+      // de conceder el permiso, otra app tiene la cámara abierta, o el
+      // hardware no la soporta). Acá mostramos el motivo real y dejamos
+      // reintentar en vez de dejar al usuario viendo una pantalla negra.
+      errorBuilder: (context, error) => _buildCameraErrorState(error),
+    );
+  }
+
+  Future<void> _retryCamera() async {
+    try {
+      await _controller.start();
+    } catch (_) {
+      // El errorBuilder se vuelve a mostrar solo, ahora con el motivo
+      // actualizado si el reintento también falla.
+    }
+    if (mounted) setState(() {});
+  }
+
+  Widget _buildCameraErrorState(MobileScannerException error) {
+    return ColoredBox(
+      color: Colors.black,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.videocam_off_outlined, size: 56, color: Colors.white38),
+              const SizedBox(height: 16),
+              const Text(
+                'No se pudo abrir la cámara',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                error.errorDetails?.message ?? error.errorCode.message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: _retryCamera,
+                child: const Text('Reintentar'),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: _openCatalog,
+                child: const Text('Usar el Catálogo de Productos'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildNoCameraPermissionState() {

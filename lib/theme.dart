@@ -140,7 +140,10 @@ final ThemeData appTheme = ThemeData(
       backgroundColor: AppColors.primary,
       foregroundColor: Colors.white,
       disabledBackgroundColor: AppColors.disabled,
-      disabledForegroundColor: Colors.white70,
+      // Antes: Colors.white70 sobre fondo gris claro (AppColors.disabled)
+      // era casi invisible (blanco sobre blanco). textSecondary da
+      // contraste real para leer el botón aunque esté deshabilitado.
+      disabledForegroundColor: AppColors.textSecondary,
       minimumSize: const Size.fromHeight(50),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       textStyle: AppTextStyles.buttonLabel,
