@@ -8,12 +8,11 @@
 // tablas) en memoria; el botón fijo "Guardar Configuración" persiste todo
 // junto al final, tal como pide el prompt.
 
-import 'dart:async';
 import 'dart:io';
 
-import 'package:esc_pos_bluetooth/esc_pos_bluetooth.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 
 import '../data/database.dart';
 import '../models/models.dart';
@@ -701,28 +700,24 @@ class _PrinterScanSheet extends StatefulWidget {
 }
 
 class _PrinterScanSheetState extends State<_PrinterScanSheet> {
-  final PrinterBluetoothManager _manager = PrinterBluetoothManager();
-  StreamSubscription<List<PrinterBluetooth>>? _subscription;
-
-  bool _scanning = true;
+  bool _loading = true;
   String? _error;
-  List<PrinterBluetooth> _devices = [];
+  List<BluetoothInfo> _devices = [];
 
   @override
   void initState() {
     super.initState();
-    _startScan();
+    _loadPairedPrinters();
   }
 
-  @override
-  void dispose() {
-    _subscription?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _startScan() async {
+  /// Lista los dispositivos Bluetooth clásico ya emparejados con el
+  /// celular. A diferencia de Bluetooth de bajo consumo (BLE), el
+  /// Bluetooth clásico que usan estas impresoras térmicas no se "descubre"
+  /// desde la app: primero hay que emparejarlas desde Ajustes > Bluetooth
+  /// de Android, y recién ahí aparecen acá.
+  Future<void> _loadPairedPrinters() async {
     setState(() {
-      _scanning = true;
+      _loading = true;
       _error = null;
       _devices = [];
     });
@@ -735,20 +730,26 @@ class _PrinterScanSheetState extends State<_PrinterScanSheet> {
     if (!granted) {
       if (!mounted) return;
       setState(() {
-        _scanning = false;
+        _loading = false;
         _error = 'Se necesitan permisos de Bluetooth para buscar impresoras.';
       });
       return;
     }
 
-    await _subscription?.cancel();
-    _subscription = _manager.scanResults.listen((devices) {
-      if (mounted) setState(() => _devices = devices);
-    });
-    _manager.startScan(const Duration(seconds: 4));
-    Future.delayed(const Duration(seconds: 4), () {
-      if (mounted) setState(() => _scanning = false);
-    });
+    try {
+      final devices = await PrintBluetoothThermal.pairedBluetooths;
+      if (!mounted) return;
+      setState(() {
+        _devices = devices;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'No se pudo leer los dispositivos Bluetooth emparejados.';
+      });
+    }
   }
 
   @override
@@ -770,18 +771,19 @@ class _PrinterScanSheetState extends State<_PrinterScanSheet> {
                 const Expanded(
                   child: Text('Impresoras Bluetooth', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 ),
-                if (_scanning)
+                if (_loading)
                   const Padding(
                     padding: EdgeInsets.all(8),
                     child: SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2)),
                   )
                 else
-                  IconButton(icon: const Icon(Icons.refresh), onPressed: _startScan),
+                  IconButton(icon: const Icon(Icons.refresh), onPressed: _loadPairedPrinters),
               ],
             ),
             const SizedBox(height: 2),
             const Text(
-              'Asegúrate de que la impresora esté encendida y emparejada por Bluetooth en el celular.',
+              'Primero empareja la impresora desde Ajustes > Bluetooth de Android; '
+              'recién ahí va a aparecer en esta lista.',
               style: TextStyle(color: Colors.black54, fontSize: 12),
             ),
             const SizedBox(height: 12),
@@ -791,7 +793,7 @@ class _PrinterScanSheetState extends State<_PrinterScanSheet> {
                   : _devices.isEmpty
                       ? Center(
                           child: Text(
-                            _scanning ? 'Buscando impresoras...' : 'No se encontraron impresoras.',
+                            _loading ? 'Buscando impresoras emparejadas...' : 'No hay impresoras emparejadas.',
                             style: const TextStyle(color: Colors.black45),
                           ),
                         )
@@ -799,8 +801,8 @@ class _PrinterScanSheetState extends State<_PrinterScanSheet> {
                           itemCount: _devices.length,
                           itemBuilder: (context, i) {
                             final device = _devices[i];
-                            final name = device.name ?? 'Impresora sin nombre';
-                            final address = device.address ?? '';
+                            final name = device.name.isEmpty ? 'Impresora sin nombre' : device.name;
+                            final address = device.macAdress;
                             return ListTile(
                               leading: const Icon(Icons.print_outlined, color: AppColors.primary),
                               title: Text(name),

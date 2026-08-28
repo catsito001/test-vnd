@@ -4,8 +4,17 @@
 //
 // Genera el ticket con `esc_pos_utils` (clase Generator) respetando el
 // tamaño de papel configurado en Ajustes (58mm ≈ 32 columnas / 80mm ≈ 48
-// columnas) y lo envía por Bluetooth clásico (SPP) con `esc_pos_bluetooth`
-// a la impresora emparejada guardada en `AppSettings.printerMacAddress`.
+// columnas) y lo envía por Bluetooth clásico (SPP) con
+// `print_bluetooth_thermal` a la impresora emparejada guardada en
+// `AppSettings.printerMacAddress`.
+//
+// Nota: el prompt original pedía `esc_pos_bluetooth` (o `blue_thermal_printer`
+// como alternativa) para el transporte Bluetooth, pero ambos paquetes están
+// abandonados desde 2021 (dependen de `jcenter()`, que ya no existe, y del
+// embedding viejo de Android) y no compilan con las versiones actuales de
+// Flutter/Android Gradle Plugin. `print_bluetooth_thermal` cubre lo mismo
+// (Bluetooth clásico/SPP, solo Android) y sí se mantiene activo. La
+// generación del ticket en sí (`esc_pos_utils`, más abajo) no cambia.
 //
 // `printReceipt` nunca lanza excepciones ni bloquea el flujo de la venta:
 // la venta ya quedó guardada en SQLite antes de llamarla, así que
@@ -15,11 +24,9 @@
 // "Reintentar impresión". Esta misma función se reutilizará desde el
 // Detalle de Venta (Parte 9) para "Reimprimir Ticket".
 
-import 'dart:async';
-
-import 'package:esc_pos_bluetooth/esc_pos_bluetooth.dart';
 import 'package:esc_pos_utils/esc_pos_utils.dart';
 import 'package:intl/intl.dart';
+import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 
 import '../data/database.dart';
 import '../models/models.dart';
@@ -72,64 +79,30 @@ Future<PrintReceiptResult> printReceipt(Sale sale, List<SaleItem> items) async {
     );
   }
 
-  final manager = PrinterBluetoothManager();
-  final printer = await _findPairedPrinter(manager, address);
-  if (printer == null) {
+  // Bluetooth clásico (SPP) no se "descubre": la impresora ya tiene que
+  // estar emparejada desde Ajustes de Android; acá solo nos conectamos
+  // directo por su MAC guardada en Ajustes (Parte 10).
+  final connected = await PrintBluetoothThermal.connect(macPrinterAddress: address);
+  if (!connected) {
     return PrintReceiptResult(
       PrintOutcome.printerNotFound,
-      'No se encontró "${settings.printerName ?? address}". Verifica que esté '
+      'No se pudo conectar con "${settings.printerName ?? address}". Verifica que esté '
       'encendida, emparejada y a rango.',
     );
   }
 
   try {
     final bytes = await _buildTicketBytes(settings, sale, items);
-    manager.selectPrinter(printer);
-    final result = await manager.printTicket(bytes);
-
-    if (result == PosPrintResult.success) {
+    final printed = await PrintBluetoothThermal.writeBytes(bytes);
+    if (printed) {
       return const PrintReceiptResult(PrintOutcome.success, 'Ticket impreso correctamente.');
     }
-    return PrintReceiptResult(PrintOutcome.printError, result.msg);
+    return const PrintReceiptResult(PrintOutcome.printError, 'La impresora no confirmó la impresión.');
   } catch (e) {
     return PrintReceiptResult(PrintOutcome.printError, 'Error al imprimir: $e');
+  } finally {
+    await PrintBluetoothThermal.disconnect;
   }
-}
-
-// ===========================================================================
-// Bluetooth: localizar la impresora emparejada
-// ===========================================================================
-//
-// La solicitud de permisos de Bluetooth vive en `permissions.dart`
-// (`ensureBluetoothPermissions`), compartida con el flujo de "Buscar
-// impresoras" de Ajustes (Parte 10), para no duplicar la lista de
-// permisos en dos archivos.
-
-/// Escanea dispositivos Bluetooth y devuelve el que coincide con [address],
-/// o `null` si no aparece dentro del tiempo de escaneo.
-Future<PrinterBluetooth?> _findPairedPrinter(
-  PrinterBluetoothManager manager,
-  String address,
-) async {
-  final completer = Completer<PrinterBluetooth?>();
-  late final StreamSubscription<List<PrinterBluetooth>> subscription;
-
-  subscription = manager.scanResults.listen((printers) {
-    for (final printer in printers) {
-      if (printer.address == address && !completer.isCompleted) {
-        completer.complete(printer);
-      }
-    }
-  });
-
-  manager.startScan(const Duration(seconds: 4));
-
-  final found = await completer.future.timeout(
-    const Duration(seconds: 5),
-    onTimeout: () => null,
-  );
-  await subscription.cancel();
-  return found;
 }
 
 // ===========================================================================

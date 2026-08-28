@@ -21,8 +21,11 @@ dependencies:
   # Escaneo de código de barras
   mobile_scanner: ^5.2.3
 
-  # Impresión térmica ESC/POS por Bluetooth clásico
-  esc_pos_bluetooth: ^0.4.1
+  # Impresión térmica ESC/POS por Bluetooth clásico.
+  # (`esc_pos_bluetooth` quedó abandonado desde 2021 y ya no compila con
+  # Android/Gradle actuales — usamos `print_bluetooth_thermal` para el
+  # transporte Bluetooth, manteniendo `esc_pos_utils` para generar el ticket)
+  print_bluetooth_thermal: ^1.2.2
   esc_pos_utils: ^1.1.0
 
   # Foto de producto / QR de Yape
