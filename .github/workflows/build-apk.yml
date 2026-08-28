@@ -1,1 +1,54 @@
 
+name: Build APK
+
+# Se ejecuta en cada push a main, o manualmente desde la pestaña "Actions"
+# (botón "Run workflow").
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Configurar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 'stable'
+          channel: 'stable'
+          cache: true
+
+      # El repo solo trae lib/, pubspec.yaml y el AndroidManifest.xml con
+      # los permisos (Parte 12) — le falta el resto del proyecto nativo de
+      # Android (gradle, tema de arranque, ícono) que normalmente genera
+      # `flutter create`. Este paso lo genera desde cero en una carpeta
+      # aparte y le inyecta los permisos automáticamente antes de compilar,
+      # así no hace falta hacerlo a mano.
+      - name: Generar el proyecto Android y fusionar permisos
+        run: |
+          flutter create --platforms=android --org com.vendemovil --project-name vende_movil /tmp/scaffold
+          rm -rf android
+          cp -r /tmp/scaffold/android android
+          python3 scripts/inject_manifest_permissions.py
+
+      - name: Instalar dependencias
+        run: flutter pub get
+
+      - name: Compilar APK (release, sin firmar con keystore propio)
+        run: flutter build apk --release
+
+      - name: Subir el APK como artifact descargable
+        uses: actions/upload-artifact@v4
+        with:
+          name: vende-movil-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
