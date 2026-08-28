@@ -2,9 +2,9 @@
 //
 // Parte 8 — Impresión térmica (ticket ESC/POS, Bluetooth 58mm/80mm).
 //
-// Genera el ticket con `esc_pos_utils` (clase Generator) respetando el
-// tamaño de papel configurado en Ajustes (58mm ≈ 32 columnas / 80mm ≈ 48
-// columnas) y lo envía por Bluetooth clásico (SPP) con
+// Genera el ticket con `esc_pos_utils_plus` (clase Generator) respetando
+// el tamaño de papel configurado en Ajustes (58mm ≈ 32 columnas / 80mm ≈
+// 48 columnas) y lo envía por Bluetooth clásico (SPP) con
 // `print_bluetooth_thermal` a la impresora emparejada guardada en
 // `AppSettings.printerMacAddress`.
 //
@@ -13,8 +13,15 @@
 // abandonados desde 2021 (dependen de `jcenter()`, que ya no existe, y del
 // embedding viejo de Android) y no compilan con las versiones actuales de
 // Flutter/Android Gradle Plugin. `print_bluetooth_thermal` cubre lo mismo
-// (Bluetooth clásico/SPP, solo Android) y sí se mantiene activo. La
-// generación del ticket en sí (`esc_pos_utils`, más abajo) no cambia.
+// (Bluetooth clásico/SPP, solo Android) y sí se mantiene activo.
+//
+// El generador de tickets también cambió: `esc_pos_utils` (el original)
+// fija el paquete `image` a una versión vieja (^3.0.2) que choca con la
+// que pide `print_bluetooth_thermal` (^4.x) — es un conflicto de
+// dependencias sin resolver desde 2023 en el paquete original. Se usa en
+// su lugar `esc_pos_utils_plus`, un fork con la misma API pública
+// (Generator, PosStyles, PosColumn, etc.) que además es el que la propia
+// documentación de `print_bluetooth_thermal` recomienda.
 //
 // `printReceipt` nunca lanza excepciones ni bloquea el flujo de la venta:
 // la venta ya quedó guardada en SQLite antes de llamarla, así que
@@ -24,7 +31,7 @@
 // "Reintentar impresión". Esta misma función se reutilizará desde el
 // Detalle de Venta (Parte 9) para "Reimprimir Ticket".
 
-import 'package:esc_pos_utils/esc_pos_utils.dart';
+import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:intl/intl.dart';
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 

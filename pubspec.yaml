@@ -24,9 +24,13 @@ dependencies:
   # Impresión térmica ESC/POS por Bluetooth clásico.
   # (`esc_pos_bluetooth` quedó abandonado desde 2021 y ya no compila con
   # Android/Gradle actuales — usamos `print_bluetooth_thermal` para el
-  # transporte Bluetooth, manteniendo `esc_pos_utils` para generar el ticket)
+  # transporte Bluetooth. `esc_pos_utils` [el original] fija una versión
+  # vieja del paquete `image` incompatible con print_bluetooth_thermal, así
+  # que generamos el ticket con `esc_pos_utils_plus`, el fork mantenido que
+  # la propia documentación de print_bluetooth_thermal recomienda por esto
+  # mismo — misma API, sin el choque de versiones.)
   print_bluetooth_thermal: ^1.2.2
-  esc_pos_utils: ^1.1.0
+  esc_pos_utils_plus: any
 
   # Foto de producto / QR de Yape
   image_picker: ^1.1.2
