@@ -234,7 +234,7 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> {
       // de conceder el permiso, otra app tiene la cámara abierta, o el
       // hardware no la soporta). Acá mostramos el motivo real y dejamos
       // reintentar en vez de dejar al usuario viendo una pantalla negra.
-      errorBuilder: (context, error) => _buildCameraErrorState(error),
+      errorBuilder: (context, error, child) => _buildCameraErrorState(error),
     );
   }
 
@@ -246,6 +246,17 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> {
       // actualizado si el reintento también falla.
     }
     if (mounted) setState(() {});
+  }
+
+  // `MobileScannerErrorCode` en la versión 5.2.3 (la que usa este proyecto)
+  // todavía no trae un getter `.message` con texto legible (eso llegó en
+  // una versión posterior del paquete), así que armamos el texto acá:
+  // usamos el detalle nativo si vino alguno, y si no, el nombre del código
+  // de error (p. ej. "permissionDenied", "unsupported", "genericError").
+  String _cameraErrorMessage(MobileScannerException error) {
+    final detail = error.errorDetails?.message;
+    if (detail != null && detail.trim().isNotEmpty) return detail;
+    return 'Código de error: ${error.errorCode.name}';
   }
 
   Widget _buildCameraErrorState(MobileScannerException error) {
@@ -265,7 +276,7 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                error.errorDetails?.message ?? error.errorCode.message,
+                _cameraErrorMessage(error),
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.white70, fontSize: 13),
               ),
