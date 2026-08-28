@@ -15,6 +15,7 @@ import '../data/database.dart';
 import '../models/models.dart';
 import '../providers/cart_provider.dart';
 import '../theme.dart';
+import '../utils/camera_error_view.dart';
 import '../utils/permissions.dart';
 import '../utils/utils.dart';
 import 'catalog_screen.dart';
@@ -229,12 +230,13 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> {
       // Parte 12 (fix): sin este `errorBuilder`, mobile_scanner cae en su
       // pantalla de error por defecto —un ícono blanco de "!" sobre negro,
       // sin texto ni forma de reintentar— cuando la cámara falla al
-      // iniciar por algo que NO es falta de permiso (permiso ya concedido
-      // pero, p. ej., el primer `start()` falla por timing justo después
-      // de conceder el permiso, otra app tiene la cámara abierta, o el
-      // hardware no la soporta). Acá mostramos el motivo real y dejamos
-      // reintentar en vez de dejar al usuario viendo una pantalla negra.
-      errorBuilder: (context, error, child) => _buildCameraErrorState(error),
+      // iniciar por algo que NO es falta de permiso. Ver CameraErrorView.
+      errorBuilder: (context, error, child) => CameraErrorView(
+        error: error,
+        onRetry: _retryCamera,
+        onFallback: _openCatalog,
+        fallbackLabel: 'Usar el Catálogo de Productos',
+      ),
     );
   }
 
@@ -246,55 +248,6 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> {
       // actualizado si el reintento también falla.
     }
     if (mounted) setState(() {});
-  }
-
-  // `MobileScannerErrorCode` en la versión 5.2.3 (la que usa este proyecto)
-  // todavía no trae un getter `.message` con texto legible (eso llegó en
-  // una versión posterior del paquete), así que armamos el texto acá:
-  // usamos el detalle nativo si vino alguno, y si no, el nombre del código
-  // de error (p. ej. "permissionDenied", "unsupported", "genericError").
-  String _cameraErrorMessage(MobileScannerException error) {
-    final detail = error.errorDetails?.message;
-    if (detail != null && detail.trim().isNotEmpty) return detail;
-    return 'Código de error: ${error.errorCode.name}';
-  }
-
-  Widget _buildCameraErrorState(MobileScannerException error) {
-    return ColoredBox(
-      color: Colors.black,
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.videocam_off_outlined, size: 56, color: Colors.white38),
-              const SizedBox(height: 16),
-              const Text(
-                'No se pudo abrir la cámara',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _cameraErrorMessage(error),
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white70, fontSize: 13),
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _retryCamera,
-                child: const Text('Reintentar'),
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: _openCatalog,
-                child: const Text('Usar el Catálogo de Productos'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   Widget _buildNoCameraPermissionState() {

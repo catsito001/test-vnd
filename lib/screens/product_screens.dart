@@ -14,6 +14,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../data/database.dart';
 import '../models/models.dart';
 import '../theme.dart';
+import '../utils/camera_error_view.dart';
 import '../utils/permissions.dart';
 import '../utils/utils.dart';
 
@@ -83,6 +84,15 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
     Navigator.of(context).pop(value);
   }
 
+  Future<void> _retryCamera() async {
+    try {
+      await _controller.start();
+    } catch (_) {
+      // El errorBuilder se vuelve a mostrar solo con el motivo actualizado.
+    }
+    if (mounted) setState(() {});
+  }
+
   void _confirmManual() {
     final value = _manualController.text.trim();
     if (value.isEmpty) return;
@@ -112,7 +122,16 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        MobileScanner(controller: _controller, onDetect: _onDetect),
+        MobileScanner(
+          controller: _controller,
+          onDetect: _onDetect,
+          errorBuilder: (context, error, child) => CameraErrorView(
+            error: error,
+            onRetry: _retryCamera,
+            onFallback: () => setState(() => _manualMode = true),
+            fallbackLabel: 'Ingresar manualmente',
+          ),
+        ),
         Center(
           child: Container(
             width: 260,
