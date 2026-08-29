@@ -125,7 +125,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
         MobileScanner(
           controller: _controller,
           onDetect: _onDetect,
-          errorBuilder: (context, error, child) => CameraErrorView(
+          errorBuilder: (context, error) => CameraErrorView(
             error: error,
             onRetry: _retryCamera,
             onFallback: () => setState(() => _manualMode = true),

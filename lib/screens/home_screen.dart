@@ -231,7 +231,7 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> {
       // pantalla de error por defecto —un ícono blanco de "!" sobre negro,
       // sin texto ni forma de reintentar— cuando la cámara falla al
       // iniciar por algo que NO es falta de permiso. Ver CameraErrorView.
-      errorBuilder: (context, error, child) => CameraErrorView(
+      errorBuilder: (context, error) => CameraErrorView(
         error: error,
         onRetry: _retryCamera,
         onFallback: _openCatalog,
