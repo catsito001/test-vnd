@@ -10,24 +10,53 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # Estado
   provider: ^6.1.2
 
+  # Base de datos local
   sqflite: ^2.3.3+1
   path: ^1.9.0
   path_provider: ^2.1.3
 
-  # Escaneo de códigos de barras y QR
+  # Escaneo de código de barras
+  #
+  # Subido de 5.2.3 a 7.4.0 (ago. 2026): 5.2.3 tiene más de un año y en el
+  # medio hubo varias correcciones puntuales a la inicialización nativa de
+  # la cámara en Android —incluyendo casos de pantalla negra/crash sin
+  # mensaje de error al llamar a start()— que encajan con el
+  # "Attempt to invoke virtual method ... on a null object reference" que
+  # tira esta app. La API que usa el proyecto (MobileScannerController con
+  # `formats`, `.dispose()`, `.toggleTorch()`, `.switchCamera()` sin
+  # argumentos, `.start()`, el widget con `controller`/`onDetect`/
+  # `errorBuilder`, y `MobileScannerException.errorDetails`) no cambió
+  # entre medio, así que no hace falta tocar el código de lib/.
+  #
+  # Requisito: 7.x pide Flutter >=3.29 / Dart >=3.7 (de ahí el piso del
+  # `sdk:` de arriba). Correr `flutter --version` antes de `flutter pub
+  # get`; si tu Flutter es más viejo, `flutter upgrade` primero.
   mobile_scanner: ^7.4.0
 
+  # Impresión térmica ESC/POS por Bluetooth clásico.
+  # (`esc_pos_bluetooth` quedó abandonado desde 2021 y ya no compila con
+  # Android/Gradle actuales — usamos `print_bluetooth_thermal` para el
+  # transporte Bluetooth. `esc_pos_utils` [el original] fija una versión
+  # vieja del paquete `image` incompatible con print_bluetooth_thermal, así
+  # que generamos el ticket con `esc_pos_utils_plus`, el fork mantenido que
+  # la propia documentación de print_bluetooth_thermal recomienda por esto
+  # mismo — misma API, sin el choque de versiones.)
   print_bluetooth_thermal: ^1.2.2
   esc_pos_utils_plus: any
 
+  # Foto de producto / QR de Yape
   image_picker: ^1.1.2
 
+  # Formato de moneda (S/ 0.00)
   intl: ^0.19.0
 
+  # IDs cortos de venta
   uuid: ^4.4.0
 
+  # Permisos en tiempo de ejecución (cámara, bluetooth)
   permission_handler: ^11.3.1
 
   cupertino_icons: ^1.0.6
