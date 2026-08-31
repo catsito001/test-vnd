@@ -108,6 +108,7 @@ class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
             unitCost: item.product.purchasePrice,
             quantity: item.quantity,
             subtotal: item.subtotal,
+            soldByWeight: item.product.soldByWeight,
           ),
         )
         .toList();
@@ -213,9 +214,7 @@ class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
               children: [
-                Text('${cart.totalQuantity} artículos', style: const TextStyle(color: Colors.black54)),
-                const SizedBox(height: 12),
-                for (final item in cart.items) _OrderLine(item: item),
+                _buildArticlesCard(cart),
                 const Divider(height: 32),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -256,6 +255,43 @@ class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
                       )
                     : const Text('Confirmar Venta'),
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- Card de artículos (scroll propio, responsive) -----------------------
+
+  /// Antes la lista de artículos vivía suelta en el ListView principal:
+  /// con carritos largos empujaba "Método de Pago" y "Confirmar Venta"
+  /// cada vez más abajo, obligando a scrollear toda la pantalla. Ahora
+  /// vive en su propia card con scroll acotado a una fracción de la
+  /// altura de pantalla (responsive), así el resto del checkout queda
+  /// siempre a la vista sin importar cuántos artículos haya.
+  Widget _buildArticlesCard(CartProvider cart) {
+    final maxListHeight = MediaQuery.of(context).size.height * 0.25;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F6F7),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('${cart.totalQuantity} artículos', style: const TextStyle(color: Colors.black54)),
+          const SizedBox(height: 4),
+          ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxListHeight),
+            child: ListView.separated(
+              shrinkWrap: true,
+              physics: const ClampingScrollPhysics(),
+              padding: EdgeInsets.zero,
+              itemCount: cart.items.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, i) => _OrderLine(item: cart.items[i]),
             ),
           ),
         ],
@@ -342,9 +378,13 @@ class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
           ),
         ),
         const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
+        GridView.count(
+          crossAxisCount: 3,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 8,
+          crossAxisSpacing: 8,
+          childAspectRatio: 2.6,
           children: [
             for (final d in _denominations)
               OutlinedButton(
@@ -481,7 +521,10 @@ class _OrderLine extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                Text('x${item.quantity}', style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                Text(
+                  item.product.soldByWeight ? formatWeight(item.quantity) : 'x${item.quantity}',
+                  style: const TextStyle(color: Colors.black54, fontSize: 12),
+                ),
               ],
             ),
           ),

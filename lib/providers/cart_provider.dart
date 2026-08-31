@@ -11,12 +11,17 @@ import '../models/models.dart';
 
 class CartItem {
   final Product product;
+  /// Unidades para productos normales; GRAMOS para productos con
+  /// `soldByWeight == true` (ver comentario en `Product.soldByWeight`).
   int quantity;
 
   CartItem({required this.product, this.quantity = 1});
 
-  double get subtotal => product.salePrice * quantity;
-  double get costSubtotal => product.purchasePrice * quantity;
+  double get subtotal =>
+      product.soldByWeight ? product.salePrice * (quantity / 1000) : product.salePrice * quantity;
+
+  double get costSubtotal =>
+      product.soldByWeight ? product.purchasePrice * (quantity / 1000) : product.purchasePrice * quantity;
 }
 
 class CartProvider extends ChangeNotifier {
@@ -27,8 +32,11 @@ class CartProvider extends ChangeNotifier {
   bool get isEmpty => _items.isEmpty;
 
   /// Suma de unidades (lo que se muestra como "X items" en la pantalla
-  /// principal), no la cantidad de líneas distintas.
-  int get totalQuantity => _items.fold(0, (sum, item) => sum + item.quantity);
+  /// principal), no la cantidad de líneas distintas. Los productos por
+  /// peso cuentan como 1 artículo (sumar sus gramos daría un número sin
+  /// sentido, ej. "253 items" por 0.25 kg de plátano).
+  int get totalQuantity =>
+      _items.fold(0, (sum, item) => sum + (item.product.soldByWeight ? 1 : item.quantity));
 
   double get total => _items.fold(0, (sum, item) => sum + item.subtotal);
 
@@ -70,6 +78,45 @@ class CartProvider extends ChangeNotifier {
 
   void removeItem(int productId) {
     _items.removeWhere((i) => i.product.id == productId);
+    notifyListeners();
+  }
+
+  /// Agrega `grams` de un producto por peso; si ya estaba en el carrito,
+  /// SUMA a lo que ya tenía (igual que `addProduct` con unidades) en vez
+  /// de reemplazarlo.
+  void addWeightedProduct(Product product, int grams) {
+    if (grams <= 0) return;
+    final index = _indexOf(product.id!);
+    if (index >= 0) {
+      _items[index].quantity += grams;
+    } else {
+      _items.add(CartItem(product: product, quantity: grams));
+    }
+    notifyListeners();
+  }
+
+  /// Fija (no suma) el peso de una línea ya agregada, para cuando se edita
+  /// la cantidad de un producto por peso que ya está en el carrito. Con
+  /// `grams <= 0` la línea se elimina.
+  void setWeight(int productId, int grams) {
+    final index = _indexOf(productId);
+    if (index < 0) return;
+    if (grams <= 0) {
+      _items.removeAt(index);
+    } else {
+      _items[index].quantity = grams;
+    }
+    notifyListeners();
+  }
+
+  /// Refresca los datos (nombre, precio, foto, etc.) de un producto que ya
+  /// está en el carrito, por ejemplo después de editarlo desde ahí mismo.
+  /// Conserva la cantidad actual. Si el producto no está en el carrito, no
+  /// hace nada.
+  void updateProductData(Product updated) {
+    final index = _indexOf(updated.id!);
+    if (index < 0) return;
+    _items[index] = CartItem(product: updated, quantity: _items[index].quantity);
     notifyListeners();
   }
 

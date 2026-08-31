@@ -21,6 +21,19 @@ final NumberFormat _currencyFormat = NumberFormat.currency(
 
 String formatCurrency(num amount) => _currencyFormat.format(amount);
 
+/// Formatea gramos como texto de peso, para productos que se venden por
+/// peso (`Product.soldByWeight`): en kg con hasta 3 decimales (sin ceros
+/// de más) desde 1000 g, o en gramos enteros por debajo de eso.
+/// Ej: 19700 -> "19.7 kg", 250 -> "250 g", 1000 -> "1 kg".
+String formatWeight(int grams) {
+  if (grams < 1000) return '$grams g';
+  final kg = grams / 1000;
+  var text = kg.toStringAsFixed(3);
+  text = text.replaceFirst(RegExp(r'0+$'), '');
+  text = text.replaceFirst(RegExp(r'\.$'), '');
+  return '$text kg';
+}
+
 /// Copia el archivo elegido (cámara o galería) al directorio de documentos
 /// de la app y devuelve la ruta permanente. `image_picker` a veces entrega
 /// un archivo en una carpeta temporal/caché que el sistema puede borrar,

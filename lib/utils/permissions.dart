@@ -29,7 +29,7 @@ Future<bool> ensureCameraPermission(BuildContext context) async {
     await _showSettingsDialog(
       context,
       title: 'Cámara desactivada',
-      message: 'Vende Móvil necesita la cámara para escanear los códigos de '
+      message: 'Ventas Cell necesita la cámara para escanear los códigos de '
           'barra de tus productos. Actívala desde los Ajustes del sistema.',
     );
     return false;
@@ -39,7 +39,7 @@ Future<bool> ensureCameraPermission(BuildContext context) async {
   final shouldAsk = await _showRationaleDialog(
     context,
     title: 'Permiso de cámara',
-    message: 'Vende Móvil usa la cámara para leer los códigos de barra y '
+    message: 'Ventas Cell usa la cámara para leer los códigos de barra y '
         'armar el carrito de venta automáticamente. También puedes agregar '
         'productos a mano si prefieres no darlo.',
   );
@@ -84,7 +84,7 @@ Future<bool> ensureBluetoothPermissions(
     final shouldAsk = await _showRationaleDialog(
       context,
       title: 'Permiso de Bluetooth',
-      message: 'Vende Móvil necesita Bluetooth para buscar tu impresora '
+      message: 'Ventas Cell necesita Bluetooth para buscar tu impresora '
           'térmica y enviarle el ticket de venta.',
     );
     if (!shouldAsk) return false;

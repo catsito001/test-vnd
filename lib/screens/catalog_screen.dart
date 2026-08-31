@@ -20,6 +20,7 @@ import '../models/models.dart';
 import '../providers/cart_provider.dart';
 import '../theme.dart';
 import '../utils/utils.dart';
+import '../utils/weight_entry_sheet.dart';
 import 'product_screens.dart';
 
 class ProductCatalogScreen extends StatefulWidget {
@@ -40,6 +41,7 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
 
   // Banner verde "agregado", igual que en la pantalla principal.
   Product? _addedProduct;
+  int? _addedGrams; // solo si _addedProduct.soldByWeight
   Timer? _bannerTimer;
 
   @override
@@ -72,10 +74,20 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
 
   // --- Agregar al carrito -------------------------------------------------
 
-  void _addToCart(Product product) {
-    context.read<CartProvider>().addProduct(product);
+  Future<void> _addToCart(Product product) async {
+    int? grams;
+    if (product.soldByWeight) {
+      grams = await showWeightEntrySheet(context, product: product);
+      if (grams == null || grams <= 0 || !mounted) return;
+      context.read<CartProvider>().addWeightedProduct(product, grams);
+    } else {
+      context.read<CartProvider>().addProduct(product);
+    }
     _bannerTimer?.cancel();
-    setState(() => _addedProduct = product);
+    setState(() {
+      _addedProduct = product;
+      _addedGrams = grams;
+    });
     _bannerTimer = Timer(const Duration(seconds: 2), () {
       if (mounted) setState(() => _addedProduct = null);
     });
@@ -239,6 +251,9 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
   // --- Banner verde "agregado" (igual que al escanear) -------------------
 
   Widget _buildAddedBanner(Product product) {
+    final amountText = _addedGrams != null
+        ? formatCurrency(product.salePrice * (_addedGrams! / 1000))
+        : formatCurrency(product.salePrice);
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -252,7 +267,7 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              '${product.name} agregado  ${formatCurrency(product.salePrice)}',
+              '${product.name} agregado  $amountText',
               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -336,7 +351,7 @@ class _ProductCard extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    formatCurrency(product.salePrice),
+                    product.soldByWeight ? '${formatCurrency(product.salePrice)}/kg' : formatCurrency(product.salePrice),
                     style: const TextStyle(
                       color: AppColors.success,
                       fontWeight: FontWeight.bold,
@@ -344,7 +359,7 @@ class _ProductCard extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    'Cant: ${product.currentStock}',
+                    product.soldByWeight ? formatWeight(product.currentStock) : 'Cant: ${product.currentStock}',
                     style: const TextStyle(color: Colors.black45, fontSize: 11),
                   ),
                 ],

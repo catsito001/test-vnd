@@ -19,7 +19,7 @@ class VendeMovilApp extends StatelessWidget {
     return ChangeNotifierProvider(
       create: (_) => CartProvider(),
       child: MaterialApp(
-        title: 'Vende Móvil',
+        title: 'Ventas Cell',
         debugShowCheckedModeBanner: false,
         theme: appTheme,
         home: const ScannerHomeScreen(),

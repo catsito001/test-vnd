@@ -7,6 +7,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
@@ -18,6 +19,7 @@ import '../theme.dart';
 import '../utils/camera_error_view.dart';
 import '../utils/permissions.dart';
 import '../utils/utils.dart';
+import '../utils/weight_entry_sheet.dart';
 import 'catalog_screen.dart';
 import 'checkout_screen.dart';
 import 'product_screens.dart';
@@ -43,7 +45,16 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> {
       BarcodeFormat.upcA,
       BarcodeFormat.code128,
     ],
+    // Ver el mismo comentario en BarcodeScannerScreen (product_screens.dart):
+    // autoStart:false + _startCamera() explícito evita la carrera con el
+    // chequeo de permiso que puede tirar "already running".
+    autoStart: false,
   );
+
+  // Sonidito de éxito al capturar el código de un producto. `lowLatency`
+  // precarga el clip en memoria (mejor para efectos cortos que ReleaseMode
+  // normal, pensado para música).
+  final AudioPlayer _successSound = AudioPlayer()..setPlayerMode(PlayerMode.lowLatency);
 
   bool _menuOpen = false;
   bool _torchOn = false;
@@ -59,6 +70,7 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> {
   // Debounce: evita que el mismo código dispare varias veces seguidas.
   String? _lastCode;
   DateTime? _lastScanTime;
+  bool _weightSheetOpen = false;
 
   // Banners temporales sobre la tarjeta del carrito.
   Product? _foundProduct;
@@ -74,6 +86,7 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> {
   @override
   void dispose() {
     _controller.dispose();
+    _successSound.dispose();
     _bannerTimer?.cancel();
     super.dispose();
   }
@@ -85,6 +98,26 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> {
       _cameraPermissionGranted = granted;
       _checkingCameraPermission = false;
     });
+    if (granted) await _startCamera();
+  }
+
+  /// Único lugar que llama a `_controller.start()`. Ver el comentario
+  /// gemelo en BarcodeScannerScreen (product_screens.dart).
+  Future<void> _startCamera() async {
+    try {
+      if (_controller.value.isRunning) return;
+      await _controller.start();
+    } on MobileScannerException catch (e) {
+      if (e.errorCode == MobileScannerErrorCode.controllerAlreadyInitialized) {
+        try {
+          await _controller.stop();
+          await _controller.start();
+        } catch (_) {
+          // Si tampoco arranca así, el errorBuilder muestra el motivo real.
+        }
+      }
+    }
+    if (mounted) setState(() {});
   }
 
   // --- Escaneo -------------------------------------------------------
@@ -109,15 +142,34 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> {
     final product = await DatabaseHelper.instance.getProductByBarcode(code);
     if (!mounted) return;
 
-    if (product != null) {
-      context.read<CartProvider>().addProduct(product);
-      _showFoundBanner(product);
-    } else {
+    if (product == null) {
       _showNotFoundBanner(code);
+      return;
     }
+
+    if (product.soldByWeight) {
+      // Producto por peso con código de barras propio (poco común: lo
+      // normal es agregarlos desde el Catálogo, sin escanear, pero puede
+      // pasar si se le vinculó un código). Pide el peso en vez de sumar
+      // 1 unidad directamente. El guard evita abrir el sheet dos veces
+      // si la cámara sigue detectando el mismo código mientras el
+      // primero sigue abierto.
+      if (_weightSheetOpen) return;
+      _weightSheetOpen = true;
+      final grams = await showWeightEntrySheet(context, product: product);
+      _weightSheetOpen = false;
+      if (grams == null || grams <= 0 || !mounted) return;
+      context.read<CartProvider>().addWeightedProduct(product, grams);
+      _showFoundBanner(product);
+      return;
+    }
+
+    context.read<CartProvider>().addProduct(product);
+    _showFoundBanner(product);
   }
 
   void _showFoundBanner(Product product) {
+    _playSuccessSound();
     _bannerTimer?.cancel();
     setState(() {
       _foundProduct = product;
@@ -126,6 +178,18 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> {
     _bannerTimer = Timer(const Duration(seconds: 2), () {
       if (mounted) setState(() => _foundProduct = null);
     });
+  }
+
+  /// No debe frenar el flujo de escaneo si falla (dispositivo sin salida
+  /// de audio, primer play todavía cargando el asset, etc), por eso el
+  /// try/catch silencioso: en el peor caso simplemente no suena.
+  Future<void> _playSuccessSound() async {
+    try {
+      await _successSound.stop();
+      await _successSound.play(AssetSource('sounds/success.wav'));
+    } catch (_) {
+      // No pasa nada si no pudo sonar; el carrito ya se actualizó igual.
+    }
   }
 
   void _showNotFoundBanner(String code) {
@@ -240,15 +304,7 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> {
     );
   }
 
-  Future<void> _retryCamera() async {
-    try {
-      await _controller.start();
-    } catch (_) {
-      // El errorBuilder se vuelve a mostrar solo, ahora con el motivo
-      // actualizado si el reintento también falla.
-    }
-    if (mounted) setState(() {});
-  }
+  Future<void> _retryCamera() => _startCamera();
 
   Widget _buildNoCameraPermissionState() {
     return ColoredBox(
@@ -510,7 +566,7 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Vende Móvil',
+                      'Ventas Cell',
                       style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 24),
@@ -580,43 +636,94 @@ class _CartItemRow extends StatelessWidget {
   final CartItem item;
   const _CartItemRow({required this.item});
 
+  /// Abre la ficha del producto (misma pantalla que usa Inventario para
+  /// editar). Si se guardó un cambio, refresca los datos de esa línea del
+  /// carrito (nombre/precio/foto) sin perder la cantidad ya elegida.
+  Future<void> _openEdit(BuildContext context, CartProvider cart, Product product) async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => NewProductScreen(product: product)),
+    );
+    if (saved != true) return;
+    final refreshed = await DatabaseHelper.instance.getProductById(product.id!);
+    if (refreshed != null) cart.updateProductData(refreshed);
+  }
+
+  /// Reabre el sheet de kg/g con el peso actual precargado, para ajustar
+  /// la cantidad de una línea por peso ya agregada al carrito.
+  Future<void> _editWeight(BuildContext context, CartProvider cart, Product product) async {
+    final grams = await showWeightEntrySheet(context, product: product, initialGrams: item.quantity);
+    if (grams == null) return;
+    cart.setWeight(product.id!, grams);
+  }
+
   @override
   Widget build(BuildContext context) {
     final cart = context.read<CartProvider>();
     final product = item.product;
     return Row(
       children: [
-        CircleAvatar(
-          radius: 20,
-          backgroundColor: const Color(0xFFEFEFEF),
-          backgroundImage: product.photoPath != null ? FileImage(File(product.photoPath!)) : null,
-          child: product.photoPath == null
-              ? const Icon(Icons.inventory_2_outlined, size: 18, color: Colors.black45)
-              : null,
-        ),
-        const SizedBox(width: 10),
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(product.name,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-              Text(formatCurrency(product.salePrice),
-                  style: const TextStyle(color: Colors.black54, fontSize: 12)),
-            ],
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => _openEdit(context, cart, product),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: const Color(0xFFEFEFEF),
+                  backgroundImage: product.photoPath != null ? FileImage(File(product.photoPath!)) : null,
+                  child: product.photoPath == null
+                      ? const Icon(Icons.inventory_2_outlined, size: 18, color: Colors.black45)
+                      : null,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(product.name,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                      Text(
+                        product.soldByWeight ? '${formatCurrency(product.salePrice)}/kg' : formatCurrency(product.salePrice),
+                        style: const TextStyle(color: Colors.black54, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-        IconButton(
-          icon: const Icon(Icons.remove_circle_outline, color: Colors.black45),
-          onPressed: () => cart.decrementQuantity(product.id!),
-        ),
-        Text('${item.quantity}', style: const TextStyle(fontWeight: FontWeight.bold)),
-        IconButton(
-          icon: const Icon(Icons.add_circle, color: AppColors.primary),
-          onPressed: () => cart.incrementQuantity(product.id!),
-        ),
+        if (product.soldByWeight) ...[
+          InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: () => _editWeight(context, cart, product),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0F0F0),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(formatWeight(item.quantity), style: const TextStyle(fontWeight: FontWeight.w600)),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, color: Colors.black45, size: 20),
+            onPressed: () => cart.removeItem(product.id!),
+          ),
+        ] else ...[
+          IconButton(
+            icon: const Icon(Icons.remove_circle_outline, color: Colors.black45),
+            onPressed: () => cart.decrementQuantity(product.id!),
+          ),
+          Text('${item.quantity}', style: const TextStyle(fontWeight: FontWeight.bold)),
+          IconButton(
+            icon: const Icon(Icons.add_circle, color: AppColors.primary),
+            onPressed: () => cart.incrementQuantity(product.id!),
+          ),
+        ],
         SizedBox(
           width: 64,
           child: Text(

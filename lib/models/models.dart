@@ -67,6 +67,13 @@ class Product {
   final int minStock; // Stock Mínimo
   final String? photoPath;
 
+  /// Si es `true`, el producto se vende por peso: `purchasePrice`/
+  /// `salePrice` son precio por KILO, y `currentStock`/`minStock` quedan
+  /// en GRAMOS en vez de unidades (así no hace falta cambiar el tipo de
+  /// esas columnas en SQLite). Pensado para productos a granel que
+  /// normalmente no tienen código de barras (fruta, verdura, etc.).
+  final bool soldByWeight;
+
   Product({
     this.id,
     required this.name,
@@ -78,6 +85,7 @@ class Product {
     this.currentStock = 0,
     this.minStock = 0,
     this.photoPath,
+    this.soldByWeight = false,
   });
 
   bool get isLowStock => currentStock <= minStock;
@@ -97,6 +105,7 @@ class Product {
         'currentStock': currentStock,
         'minStock': minStock,
         'photoPath': photoPath,
+        'soldByWeight': soldByWeight ? 1 : 0,
       };
 
   factory Product.fromMap(Map<String, dynamic> map) => Product(
@@ -114,6 +123,7 @@ class Product {
         currentStock: map['currentStock'] as int,
         minStock: map['minStock'] as int,
         photoPath: map['photoPath'] as String?,
+        soldByWeight: (map['soldByWeight'] as int?) == 1,
       );
 
   Product copyWith({
@@ -127,6 +137,7 @@ class Product {
     int? currentStock,
     int? minStock,
     String? photoPath,
+    bool? soldByWeight,
   }) =>
       Product(
         id: id ?? this.id,
@@ -139,6 +150,7 @@ class Product {
         currentStock: currentStock ?? this.currentStock,
         minStock: minStock ?? this.minStock,
         photoPath: photoPath ?? this.photoPath,
+        soldByWeight: soldByWeight ?? this.soldByWeight,
       );
 }
 
@@ -219,6 +231,13 @@ class SaleItem {
   final int quantity;
   final double subtotal;
 
+  /// Copia de `Product.soldByWeight` al momento de la venta: si es
+  /// `true`, `quantity` está en gramos (no en unidades) y `unitPrice`/
+  /// `unitCost` son precio por kilo. Se guarda acá para que el ticket y
+  /// el Historial de Ventas se sigan viendo bien aunque el producto se
+  /// edite o borre después.
+  final bool soldByWeight;
+
   SaleItem({
     this.id,
     required this.saleId,
@@ -228,6 +247,7 @@ class SaleItem {
     required this.unitCost,
     required this.quantity,
     required this.subtotal,
+    this.soldByWeight = false,
   });
 
   Map<String, dynamic> toMap() => {
@@ -239,6 +259,7 @@ class SaleItem {
         'unitCost': unitCost,
         'quantity': quantity,
         'subtotal': subtotal,
+        'soldByWeight': soldByWeight ? 1 : 0,
       };
 
   factory SaleItem.fromMap(Map<String, dynamic> map) => SaleItem(
@@ -250,6 +271,7 @@ class SaleItem {
         unitCost: (map['unitCost'] as num).toDouble(),
         quantity: map['quantity'] as int,
         subtotal: (map['subtotal'] as num).toDouble(),
+        soldByWeight: (map['soldByWeight'] as int?) == 1,
       );
 }
 
