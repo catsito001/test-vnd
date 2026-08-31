@@ -109,13 +109,16 @@ Future<void> exportInventoryZip(BuildContext context) async {
 /// Deja elegir un .zip exportado antes y hace MERGE contra el inventario
 /// actual. Muestra un resumen (nuevos / actualizados / fotos) al final.
 Future<void> importInventoryZip(BuildContext context) async {
-  // file_picker 11+: FilePicker.pickFiles(...) estático, ya no
-  // FilePicker.platform.pickFiles(...) (breaking change de la v11.0.0).
-  final result = await FilePicker.pickFiles(
+  // file_picker 12+: pickFiles() ya no devuelve FilePickerResult?, devuelve
+  // List<PlatformFile> directo (breaking change de la v12.0.0). Como acá
+  // siempre se elige un solo archivo, se usa pickFile() (nuevo en la
+  // 12.0.0), que devuelve PlatformFile? directo — más simple que lidiar
+  // con la lista para este caso.
+  final file = await FilePicker.pickFile(
     type: FileType.custom,
     allowedExtensions: ['zip'],
   );
-  final path = result?.files.single.path;
+  final path = file?.path;
   if (path == null || !context.mounted) return;
 
   _showLoadingDialog(context, 'Importando inventario...');

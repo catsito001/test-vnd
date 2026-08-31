@@ -4,7 +4,11 @@ publish_to: "none"
 version: 1.0.0+1
 
 environment:
-  sdk: ">=3.7.0 <4.0.0"
+  # Piso subido de 3.7.0 a 3.11.0: file_picker 12.x pide Dart >=3.10 y
+  # share_plus 13.x pide Dart >=3.11 (ver el pubspec de abajo). El Flutter
+  # "stable" que usa el workflow ya trae un Dart bastante más nuevo que
+  # eso — esto es solo para que el piso declarado sea honesto.
+  sdk: ">=3.11.0 <4.0.0"
 
 dependencies:
   flutter:
@@ -31,9 +35,10 @@ dependencies:
   # `errorBuilder`, y `MobileScannerException.errorDetails`) no cambió
   # entre medio, así que no hace falta tocar el código de lib/.
   #
-  # Requisito: 7.x pide Flutter >=3.29 / Dart >=3.7 (de ahí el piso del
-  # `sdk:` de arriba). Correr `flutter --version` antes de `flutter pub
-  # get`; si tu Flutter es más viejo, `flutter upgrade` primero.
+  # Requisito: 7.x pide Flutter >=3.29 / Dart >=3.7, bien por debajo del
+  # piso del `sdk:` de arriba (que hoy lo marcan file_picker/share_plus).
+  # Correr `flutter --version` antes de `flutter pub get`; si tu Flutter
+  # es más viejo, `flutter upgrade` primero.
   mobile_scanner: ^7.4.0
 
   # Impresión térmica ESC/POS por Bluetooth clásico.
@@ -66,26 +71,48 @@ dependencies:
 
   # Respaldo de inventario (zip con fotos) y exportar Historial a Excel
   archive: ^3.6.1
-  share_plus: ^12.0.0
-  # file_picker: antes de la 10.3.3 traía su PROPIO compileSdk fijo y bajo
-  # en su build.gradle (nada que ver con la versión de Flutter ni con
-  # este proyecto) — por eso fallaba con "file_picker is currently
-  # compiled against android-34" pese a cualquier ajuste de compileSdk
-  # de nuestro lado. Ya está arreglado desde la 10.3.3.
   #
-  # Se usa ^11.0.3 (última estable) y NO ^12.x: desde la 12.0.0 file_picker
-  # pasa a arquitectura federada y en Android/Windows arrastra
-  # windows_file_picker, que pide win32 ^6.3.0 — choca con share_plus (pide
-  # win32 ^5.5.3) y `flutter pub get` falla con "version solving failed".
-  # 11.0.3 no depende de windows_file_picker, así que no hay choque.
+  # share_plus + file_picker suben JUNTOS a propósito (ver el porqué de
+  # cada uno abajo) — bajar solo uno de los dos vuelve a romper
+  # `flutter pub get` con el mismo choque de win32 que ya tuvimos.
   #
-  # La 11.0.0 cambió la API a métodos estáticos (FilePicker.pickFiles(...)
-  # en vez de FilePicker.platform.pickFiles(...)), que es la que ya usa
-  # lib/utils/inventory_backup.dart, y en toda la serie 11.x ese método
-  # sigue devolviendo FilePickerResult? (en la 12.x pasa a devolver
-  # List<PlatformFile> directo, otro breaking change) — por eso 11.0.3 no
-  # requiere tocar el código, solo esta línea.
-  file_picker: ^11.0.3
+  # share_plus: desde la 13.0.0 subió su dependencia de win32 a ^6.0.1
+  # (antes ^5.5.3, breaking change). Necesario para que sea compatible con
+  # file_picker 12.x — ver el comentario de file_picker.
+  share_plus: ^13.3.0
+  # file_picker: dos problemas distintos, y los dos se resuelven subiendo
+  # a la línea 12.x (NO alcanza con quedarse en 11.x):
+  #
+  # 1) compileSdk: antes de la 10.3.3 traía su PROPIO compileSdk fijo y
+  #    bajo en su build.gradle (nada que ver con Flutter ni con este
+  #    proyecto) — por eso fallaba con "file_picker is currently compiled
+  #    against android-34". Arreglado desde la 10.3.3, mucho antes de la
+  #    12.x, así que esto ya no es un problema en ninguna versión que
+  #    usemos.
+  #
+  # 2) Registro del plugin en Android — "cannot find symbol ...
+  #    FilePickerPlugin" al compilar el APK: la 11.0.0 rompió el registro
+  #    en proyectos con AGP < 9 (arreglado en la 11.0.1), pero tiene un
+  #    problema de registro DISTINTO con AGP 9+ (el que trae el `flutter
+  #    create` de un Flutter stable actual), arreglado recién en la línea
+  #    12.x (12.0.0-beta.3 en adelante). De paso, desde la beta.4 dejó de
+  #    aplicar el Kotlin Gradle Plugin a mano (era la causa del warning
+  #    "Future versions of Flutter will fail to build..." que salía en el
+  #    log de build). Por esto 11.0.3 (la última de la serie 11.x) TODAVÍA
+  #    fallaba acá, aunque ya tuviera el fix de compileSdk del punto 1.
+  #
+  # El motivo por el que antes se había evitado la 12.x era que arrastra
+  # windows_file_picker (pide win32 ^6.3.0), que chocaba con share_plus
+  # (pedía win32 ^5.5.3 hasta su propia 12.x). Subiendo share_plus a
+  # ^13.3.0 (arriba) ese choque desaparece.
+  #
+  # La 12.0.0 además cambió pickFiles(): ya no devuelve FilePickerResult?,
+  # devuelve List<PlatformFile> directo (breaking change), y agregó
+  # pickFile() para elegir un solo archivo, devolviendo PlatformFile?
+  # directo. Como acá siempre se elige un único .zip, se cambió
+  # lib/utils/inventory_backup.dart para usar pickFile() en vez de
+  # pickFiles() — más simple para este caso.
+  file_picker: ^12.1.2
   excel: ^4.0.0
   cross_file: ^0.3.3
 
