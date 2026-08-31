@@ -71,11 +71,21 @@ dependencies:
   # en su build.gradle (nada que ver con la versión de Flutter ni con
   # este proyecto) — por eso fallaba con "file_picker is currently
   # compiled against android-34" pese a cualquier ajuste de compileSdk
-  # de nuestro lado. Lo arreglaron ahí mismo. `^8.0.0` nunca iba a
-  # resolver esa versión porque el `^` no cruza a 9.x/10.x/11.x/12.x.
-  # De paso, la 11.0.0 cambió la API a métodos estáticos
-  # (FilePicker.pickFiles(...) en vez de FilePicker.platform.pickFiles(...)).
-  file_picker: ^12.0.0
+  # de nuestro lado. Ya está arreglado desde la 10.3.3.
+  #
+  # Se usa ^11.0.3 (última estable) y NO ^12.x: desde la 12.0.0 file_picker
+  # pasa a arquitectura federada y en Android/Windows arrastra
+  # windows_file_picker, que pide win32 ^6.3.0 — choca con share_plus (pide
+  # win32 ^5.5.3) y `flutter pub get` falla con "version solving failed".
+  # 11.0.3 no depende de windows_file_picker, así que no hay choque.
+  #
+  # La 11.0.0 cambió la API a métodos estáticos (FilePicker.pickFiles(...)
+  # en vez de FilePicker.platform.pickFiles(...)), que es la que ya usa
+  # lib/utils/inventory_backup.dart, y en toda la serie 11.x ese método
+  # sigue devolviendo FilePickerResult? (en la 12.x pasa a devolver
+  # List<PlatformFile> directo, otro breaking change) — por eso 11.0.3 no
+  # requiere tocar el código, solo esta línea.
+  file_picker: ^11.0.3
   excel: ^4.0.0
   cross_file: ^0.3.3
 
