@@ -67,7 +67,15 @@ dependencies:
   # Respaldo de inventario (zip con fotos) y exportar Historial a Excel
   archive: ^3.6.1
   share_plus: ^12.0.0
-  file_picker: ^8.0.0
+  # file_picker: antes de la 10.3.3 traía su PROPIO compileSdk fijo y bajo
+  # en su build.gradle (nada que ver con la versión de Flutter ni con
+  # este proyecto) — por eso fallaba con "file_picker is currently
+  # compiled against android-34" pese a cualquier ajuste de compileSdk
+  # de nuestro lado. Lo arreglaron ahí mismo. `^8.0.0` nunca iba a
+  # resolver esa versión porque el `^` no cruza a 9.x/10.x/11.x/12.x.
+  # De paso, la 11.0.0 cambió la API a métodos estáticos
+  # (FilePicker.pickFiles(...) en vez de FilePicker.platform.pickFiles(...)).
+  file_picker: ^12.0.0
   excel: ^4.0.0
   cross_file: ^0.3.3
 

@@ -109,7 +109,9 @@ Future<void> exportInventoryZip(BuildContext context) async {
 /// Deja elegir un .zip exportado antes y hace MERGE contra el inventario
 /// actual. Muestra un resumen (nuevos / actualizados / fotos) al final.
 Future<void> importInventoryZip(BuildContext context) async {
-  final result = await FilePicker.platform.pickFiles(
+  // file_picker 11+: FilePicker.pickFiles(...) estático, ya no
+  // FilePicker.platform.pickFiles(...) (breaking change de la v11.0.0).
+  final result = await FilePicker.pickFiles(
     type: FileType.custom,
     allowedExtensions: ['zip'],
   );
