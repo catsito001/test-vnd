@@ -313,7 +313,7 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> with RouteAware {
       // de conceder el permiso, otra app tiene la cámara abierta, o el
       // hardware no la soporta). Acá mostramos el motivo real y dejamos
       // reintentar en vez de dejar al usuario viendo una pantalla negra.
-      errorBuilder: (context, error) => _buildCameraErrorState(error),
+      errorBuilder: (context, error, child) => _buildCameraErrorState(error),
     );
   }
 
@@ -325,6 +325,24 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> with RouteAware {
       // actualizado si el reintento también falla.
     }
     if (mounted) setState(() {});
+  }
+
+  // Parte 12 (fix build): `MobileScannerErrorCode` NO tiene un getter público
+  // `.message` en mobile_scanner 5.2.3 (ese getter solo existe internamente
+  // dentro del paquete, no está exportado) — usarlo rompe la compilación.
+  // `errorDetails?.message` sí es público y viene relleno en la mayoría de
+  // los casos; si no viene, armamos un mensaje amigable según el código.
+  String _cameraErrorMessage(MobileScannerException error) {
+    final String? detail = error.errorDetails?.message;
+    if (detail != null && detail.isNotEmpty) return detail;
+    switch (error.errorCode) {
+      case MobileScannerErrorCode.permissionDenied:
+        return 'Permiso de cámara denegado. Actívalo en Ajustes del sistema.';
+      case MobileScannerErrorCode.unsupported:
+        return 'Este dispositivo no es compatible con el escaneo de códigos.';
+      default:
+        return 'No se pudo iniciar la cámara (código: ${error.errorCode.name}).';
+    }
   }
 
   Widget _buildCameraErrorState(MobileScannerException error) {
@@ -344,7 +362,7 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> with RouteAware {
               ),
               const SizedBox(height: 8),
               Text(
-                error.errorDetails?.message ?? error.errorCode.message,
+                _cameraErrorMessage(error),
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.white70, fontSize: 13),
               ),
