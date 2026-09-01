@@ -8,7 +8,6 @@
 
 import 'dart:io';
 
-import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
@@ -22,13 +21,17 @@ final NumberFormat _currencyFormat = NumberFormat.currency(
 
 String formatCurrency(num amount) => _currencyFormat.format(amount);
 
-/// Sonido corto de feedback al tocar "+"/"-" para cambiar la cantidad de
-/// un producto en el carrito (Parte 13). Usa el sonido de sistema de
-/// Android en vez de un paquete de audio o un archivo de sonido extra:
-/// no hace falta declarar ningún asset y respeta el ajuste "Sonidos
-/// táctiles" del propio teléfono (Ajustes > Sonido).
-void playQuantityChangeSound() {
-  SystemSound.play(SystemSoundType.click);
+/// Formatea gramos como texto de peso, para productos que se venden por
+/// peso (`Product.soldByWeight`): en kg con hasta 3 decimales (sin ceros
+/// de más) desde 1000 g, o en gramos enteros por debajo de eso.
+/// Ej: 19700 -> "19.7 kg", 250 -> "250 g", 1000 -> "1 kg".
+String formatWeight(int grams) {
+  if (grams < 1000) return '$grams g';
+  final kg = grams / 1000;
+  var text = kg.toStringAsFixed(3);
+  text = text.replaceFirst(RegExp(r'0+$'), '');
+  text = text.replaceFirst(RegExp(r'\.$'), '');
+  return '$text kg';
 }
 
 /// Copia el archivo elegido (cámara o galería) al directorio de documentos

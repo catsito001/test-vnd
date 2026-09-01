@@ -7,6 +7,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
@@ -15,9 +16,11 @@ import '../data/database.dart';
 import '../models/models.dart';
 import '../providers/cart_provider.dart';
 import '../theme.dart';
+import '../utils/camera_error_view.dart';
 import '../utils/navigation.dart';
 import '../utils/permissions.dart';
 import '../utils/utils.dart';
+import '../utils/weight_entry_sheet.dart';
 import 'catalog_screen.dart';
 import 'checkout_screen.dart';
 import 'product_screens.dart';
@@ -43,7 +46,16 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> with RouteAware {
       BarcodeFormat.upcA,
       BarcodeFormat.code128,
     ],
+    // Ver el mismo comentario en BarcodeScannerScreen (product_screens.dart):
+    // autoStart:false + _startCamera() explícito evita la carrera con el
+    // chequeo de permiso que puede tirar "already running".
+    autoStart: false,
   );
+
+  // Sonidito de éxito al capturar el código de un producto. `lowLatency`
+  // precarga el clip en memoria (mejor para efectos cortos que ReleaseMode
+  // normal, pensado para música).
+  final AudioPlayer _successSound = AudioPlayer()..setPlayerMode(PlayerMode.lowLatency);
 
   bool _menuOpen = false;
   bool _torchOn = false;
@@ -59,16 +71,12 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> with RouteAware {
   // Debounce: evita que el mismo código dispare varias veces seguidas.
   String? _lastCode;
   DateTime? _lastScanTime;
+  bool _weightSheetOpen = false;
 
   // Banners temporales sobre la tarjeta del carrito.
   Product? _foundProduct;
   String? _notFoundCode;
   Timer? _bannerTimer;
-
-  // Parte 13 (fix): recuerda si esta pantalla pausó su propia cámara al
-  // quedar tapada por otra, para no volver a pausarla ni reanudarla de más
-  // (ver `_pauseCameraForNavigation` / `_resumeCameraForNavigation`).
-  bool _cameraPausedForNavigation = false;
 
   @override
   void initState() {
@@ -79,18 +87,38 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> with RouteAware {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Parte 13 (fix): nos suscribimos al RouteObserver global para que
-    // `didPushNext`/`didPopNext` (abajo) nos avisen cuándo esta pantalla
-    // deja de estar en primer plano y cuándo vuelve a estarlo.
-    appRouteObserver.subscribe(this, ModalRoute.of(context)! as PageRoute);
+    final route = ModalRoute.of(context);
+    if (route is PageRoute<dynamic>) routeObserver.subscribe(this, route);
   }
 
   @override
   void dispose() {
-    appRouteObserver.unsubscribe(this);
+    routeObserver.unsubscribe(this);
     _controller.dispose();
+    _successSound.dispose();
     _bannerTimer?.cancel();
     super.dispose();
+  }
+
+  // --- RouteAware (fix cámara) ------------------------------------------
+  //
+  // Se dispara al navegar a Inventario, al Catálogo, o a cualquier
+  // pantalla que abra su propia cámara (escanear código nuevo/vincular).
+  // Frenamos acá la cámara de esta pantalla para no competir por el
+  // hardware con el controller de la pantalla nueva — es la causa raíz
+  // del error "MobileScannerController is already running" /
+  // "controllerAlreadyInitialized". Efecto secundario menor y aceptado:
+  // la cámara detrás del Catálogo (que antes se veía "viva" como overlay
+  // translúcido) ahora se congela mientras el Catálogo está abierto, pero
+  // ya no se rompe.
+  @override
+  void didPushNext() {
+    _controller.stop();
+  }
+
+  @override
+  void didPopNext() {
+    if (_cameraPermissionGranted) _startCamera();
   }
 
   Future<void> _checkCameraPermission() async {
@@ -100,61 +128,24 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> with RouteAware {
       _cameraPermissionGranted = granted;
       _checkingCameraPermission = false;
     });
+    if (granted) await _startCamera();
   }
 
-  // --- Parte 13 (fix): pausar/reanudar cámara al navegar -----------------
-  //
-  // Antes, esta cámara se quedaba encendida todo el tiempo aunque el
-  // usuario navegara a otra pantalla (Inventario, Catálogo, Ajustes...),
-  // incluso al Catálogo que se abre encima como overlay translúcido y deja
-  // "ver" la cámara detrás. El problema: si desde esa otra pantalla se
-  // abría una que también usa la cámara (escanear código de producto
-  // nuevo, vincular código), las dos chocaban por el hardware y se veía el
-  // error "MobileScannerController is already running" en vez de la
-  // cámara — justo lo que pasaba al agregar o vincular un producto.
-  //
-  // Ahora esta cámara se pausa apenas se navega a CUALQUIER otra pantalla
-  // (opaca o translúcida) y se reanuda sola al volver. Se pierde el efecto
-  // de "cámara viva detrás del Catálogo" (ahora se ve congelada/negra
-  // mientras el Catálogo está abierto), pero se evita el choque de
-  // cámaras de raíz en vez de parchar cada pantalla que escanea un código.
-
-  /// Se llama cuando se empuja una ruta nueva encima de esta pantalla
-  /// (Inventario, Catálogo, Ajustes, Historial...), sin importar si es
-  /// opaca o translúcida.
-  @override
-  void didPushNext() => _pauseCameraForNavigation();
-
-  /// Se llama al volver a esta pantalla (se cerró la ruta que estaba
-  /// encima).
-  @override
-  void didPopNext() => _resumeCameraForNavigation();
-
-  Future<void> _pauseCameraForNavigation() async {
-    if (!_cameraPermissionGranted || _cameraPausedForNavigation) return;
-    _cameraPausedForNavigation = true;
+  /// Único lugar que llama a `_controller.start()`. Ver el comentario
+  /// gemelo en BarcodeScannerScreen (product_screens.dart).
+  Future<void> _startCamera() async {
     try {
-      if (_controller.value.isRunning) {
-        await _controller.stop();
+      if (_controller.value.isRunning) return;
+      await _controller.start();
+    } on MobileScannerException catch (e) {
+      if (e.errorCode == MobileScannerErrorCode.controllerAlreadyInitialized) {
+        try {
+          await _controller.stop();
+          await _controller.start();
+        } catch (_) {
+          // Si tampoco arranca así, el errorBuilder muestra el motivo real.
+        }
       }
-    } catch (_) {
-      // Si el hardware ya la había cerrado por su cuenta, no hay nada más
-      // que hacer: igual queda marcada como pausada para que se reanude
-      // bien al volver.
-    }
-  }
-
-  Future<void> _resumeCameraForNavigation() async {
-    if (!_cameraPermissionGranted || !_cameraPausedForNavigation) return;
-    _cameraPausedForNavigation = false;
-    try {
-      if (!_controller.value.isRunning) {
-        await _controller.start();
-      }
-    } catch (_) {
-      // Si el reinicio falla, el `errorBuilder` de MobileScanner (más
-      // abajo) muestra el motivo y deja reintentar en vez de dejar la
-      // pantalla trabada.
     }
     if (mounted) setState(() {});
   }
@@ -181,15 +172,43 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> with RouteAware {
     final product = await DatabaseHelper.instance.getProductByBarcode(code);
     if (!mounted) return;
 
-    if (product != null) {
-      context.read<CartProvider>().addProduct(product);
-      _showFoundBanner(product);
-    } else {
+    if (product == null) {
       _showNotFoundBanner(code);
+      return;
     }
+
+    await _addProductToCart(product);
+  }
+
+  /// Agrega [product] al carrito (pidiendo el peso primero si es un
+  /// producto a granel) y muestra el banner + sonido de éxito. Lo usan
+  /// tanto el escaneo normal (`_handleBarcode`) como el flujo de
+  /// "producto nuevo"/"vincular" (`_addNotFoundProduct`), para no
+  /// duplicar la lógica de carrito en dos lados.
+  Future<void> _addProductToCart(Product product) async {
+    if (product.soldByWeight) {
+      // Producto por peso con código de barras propio (poco común: lo
+      // normal es agregarlos desde el Catálogo, sin escanear, pero puede
+      // pasar si se le vinculó un código). Pide el peso en vez de sumar
+      // 1 unidad directamente. El guard evita abrir el sheet dos veces
+      // si la cámara sigue detectando el mismo código mientras el
+      // primero sigue abierto.
+      if (_weightSheetOpen) return;
+      _weightSheetOpen = true;
+      final grams = await showWeightEntrySheet(context, product: product);
+      _weightSheetOpen = false;
+      if (grams == null || grams <= 0 || !mounted) return;
+      context.read<CartProvider>().addWeightedProduct(product, grams);
+      _showFoundBanner(product);
+      return;
+    }
+
+    context.read<CartProvider>().addProduct(product);
+    _showFoundBanner(product);
   }
 
   void _showFoundBanner(Product product) {
+    _playSuccessSound();
     _bannerTimer?.cancel();
     setState(() {
       _foundProduct = product;
@@ -198,6 +217,18 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> with RouteAware {
     _bannerTimer = Timer(const Duration(seconds: 2), () {
       if (mounted) setState(() => _foundProduct = null);
     });
+  }
+
+  /// No debe frenar el flujo de escaneo si falla (dispositivo sin salida
+  /// de audio, primer play todavía cargando el asset, etc), por eso el
+  /// try/catch silencioso: en el peor caso simplemente no suena.
+  Future<void> _playSuccessSound() async {
+    try {
+      await _successSound.stop();
+      await _successSound.play(AssetSource('sounds/success.wav'));
+    } catch (_) {
+      // No pasa nada si no pudo sonar; el carrito ya se actualizó igual.
+    }
   }
 
   void _showNotFoundBanner(String code) {
@@ -211,16 +242,17 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> with RouteAware {
   Future<void> _addNotFoundProduct() async {
     final code = _notFoundCode;
     if (code == null) return;
+    // NewProductScreen ahora devuelve el Product guardado (nuevo o
+    // vinculado), no solo `true`/`false`, para poder agregarlo al
+    // carrito de una vez y no obligar a volver a escanear el mismo
+    // código que el usuario acaba de registrar.
     final saved = await Navigator.of(context).push<Product>(
       MaterialPageRoute(builder: (_) => NewProductScreen(initialBarcode: code)),
     );
-    if (saved == null || !mounted) return;
-    // Parte 13 (fix): el producto que se acaba de registrar (o vincular a
-    // uno existente) es justo el que el usuario estaba tratando de
-    // vender al escanearlo, así que se carga directo al carrito en vez de
-    // solo cerrar el banner de "no encontrado".
-    context.read<CartProvider>().addProduct(saved);
-    _showFoundBanner(saved);
+    if (saved != null && mounted) {
+      setState(() => _notFoundCode = null);
+      await _addProductToCart(saved);
+    }
   }
 
   // --- Navegación ------------------------------------------------------
@@ -239,10 +271,8 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> with RouteAware {
   }
 
   void _openCatalog() {
-    // Ruta translúcida para el efecto de overlay difuminado (Parte 6): el
-    // fondo oscuro semitransparente del catálogo se ve sobre el último
-    // frame de esta pantalla. La cámara en sí se pausa igual que con
-    // cualquier otra navegación (Parte 13, ver `didPushNext` arriba).
+    // Ruta translúcida: la cámara de esta pantalla sigue viva y visible
+    // detrás del fondo oscurecido del catálogo (Parte 6), como overlay.
     Navigator.of(context).push(
       PageRouteBuilder(
         opaque: false,
@@ -308,80 +338,17 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> with RouteAware {
       // Parte 12 (fix): sin este `errorBuilder`, mobile_scanner cae en su
       // pantalla de error por defecto —un ícono blanco de "!" sobre negro,
       // sin texto ni forma de reintentar— cuando la cámara falla al
-      // iniciar por algo que NO es falta de permiso (permiso ya concedido
-      // pero, p. ej., el primer `start()` falla por timing justo después
-      // de conceder el permiso, otra app tiene la cámara abierta, o el
-      // hardware no la soporta). Acá mostramos el motivo real y dejamos
-      // reintentar en vez de dejar al usuario viendo una pantalla negra.
-      errorBuilder: (context, error, child) => _buildCameraErrorState(error),
-    );
-  }
-
-  Future<void> _retryCamera() async {
-    try {
-      await _controller.start();
-    } catch (_) {
-      // El errorBuilder se vuelve a mostrar solo, ahora con el motivo
-      // actualizado si el reintento también falla.
-    }
-    if (mounted) setState(() {});
-  }
-
-  // Parte 12 (fix build): `MobileScannerErrorCode` NO tiene un getter público
-  // `.message` en mobile_scanner 5.2.3 (ese getter solo existe internamente
-  // dentro del paquete, no está exportado) — usarlo rompe la compilación.
-  // `errorDetails?.message` sí es público y viene relleno en la mayoría de
-  // los casos; si no viene, armamos un mensaje amigable según el código.
-  String _cameraErrorMessage(MobileScannerException error) {
-    final String? detail = error.errorDetails?.message;
-    if (detail != null && detail.isNotEmpty) return detail;
-    switch (error.errorCode) {
-      case MobileScannerErrorCode.permissionDenied:
-        return 'Permiso de cámara denegado. Actívalo en Ajustes del sistema.';
-      case MobileScannerErrorCode.unsupported:
-        return 'Este dispositivo no es compatible con el escaneo de códigos.';
-      default:
-        return 'No se pudo iniciar la cámara (código: ${error.errorCode.name}).';
-    }
-  }
-
-  Widget _buildCameraErrorState(MobileScannerException error) {
-    return ColoredBox(
-      color: Colors.black,
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.videocam_off_outlined, size: 56, color: Colors.white38),
-              const SizedBox(height: 16),
-              const Text(
-                'No se pudo abrir la cámara',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _cameraErrorMessage(error),
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white70, fontSize: 13),
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _retryCamera,
-                child: const Text('Reintentar'),
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: _openCatalog,
-                child: const Text('Usar el Catálogo de Productos'),
-              ),
-            ],
-          ),
-        ),
+      // iniciar por algo que NO es falta de permiso. Ver CameraErrorView.
+      errorBuilder: (context, error) => CameraErrorView(
+        error: error,
+        onRetry: _retryCamera,
+        onFallback: _openCatalog,
+        fallbackLabel: 'Usar el Catálogo de Productos',
       ),
     );
   }
+
+  Future<void> _retryCamera() => _startCamera();
 
   Widget _buildNoCameraPermissionState() {
     return ColoredBox(
@@ -643,7 +610,7 @@ class _ScannerHomeScreenState extends State<ScannerHomeScreen> with RouteAware {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Vende Móvil',
+                      'Ventas Cell',
                       style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 24),
@@ -713,49 +680,94 @@ class _CartItemRow extends StatelessWidget {
   final CartItem item;
   const _CartItemRow({required this.item});
 
+  /// Abre la ficha del producto (misma pantalla que usa Inventario para
+  /// editar). Si se guardó un cambio, refresca los datos de esa línea del
+  /// carrito (nombre/precio/foto) sin perder la cantidad ya elegida.
+  Future<void> _openEdit(BuildContext context, CartProvider cart, Product product) async {
+    final saved = await Navigator.of(context).push<Product>(
+      MaterialPageRoute(builder: (_) => NewProductScreen(product: product)),
+    );
+    if (saved == null) return;
+    final refreshed = await DatabaseHelper.instance.getProductById(product.id!);
+    if (refreshed != null) cart.updateProductData(refreshed);
+  }
+
+  /// Reabre el sheet de kg/g con el peso actual precargado, para ajustar
+  /// la cantidad de una línea por peso ya agregada al carrito.
+  Future<void> _editWeight(BuildContext context, CartProvider cart, Product product) async {
+    final grams = await showWeightEntrySheet(context, product: product, initialGrams: item.quantity);
+    if (grams == null) return;
+    cart.setWeight(product.id!, grams);
+  }
+
   @override
   Widget build(BuildContext context) {
     final cart = context.read<CartProvider>();
     final product = item.product;
     return Row(
       children: [
-        CircleAvatar(
-          radius: 20,
-          backgroundColor: const Color(0xFFEFEFEF),
-          backgroundImage: product.photoPath != null ? FileImage(File(product.photoPath!)) : null,
-          child: product.photoPath == null
-              ? const Icon(Icons.inventory_2_outlined, size: 18, color: Colors.black45)
-              : null,
-        ),
-        const SizedBox(width: 10),
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(product.name,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-              Text(formatCurrency(product.salePrice),
-                  style: const TextStyle(color: Colors.black54, fontSize: 12)),
-            ],
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => _openEdit(context, cart, product),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: const Color(0xFFEFEFEF),
+                  backgroundImage: product.photoPath != null ? FileImage(File(product.photoPath!)) : null,
+                  child: product.photoPath == null
+                      ? const Icon(Icons.inventory_2_outlined, size: 18, color: Colors.black45)
+                      : null,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(product.name,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                      Text(
+                        product.soldByWeight ? '${formatCurrency(product.salePrice)}/kg' : formatCurrency(product.salePrice),
+                        style: const TextStyle(color: Colors.black54, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-        IconButton(
-          icon: const Icon(Icons.remove_circle_outline, color: Colors.black45),
-          onPressed: () {
-            playQuantityChangeSound();
-            cart.decrementQuantity(product.id!);
-          },
-        ),
-        Text('${item.quantity}', style: const TextStyle(fontWeight: FontWeight.bold)),
-        IconButton(
-          icon: const Icon(Icons.add_circle, color: AppColors.primary),
-          onPressed: () {
-            playQuantityChangeSound();
-            cart.incrementQuantity(product.id!);
-          },
-        ),
+        if (product.soldByWeight) ...[
+          InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: () => _editWeight(context, cart, product),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0F0F0),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(formatWeight(item.quantity), style: const TextStyle(fontWeight: FontWeight.w600)),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, color: Colors.black45, size: 20),
+            onPressed: () => cart.removeItem(product.id!),
+          ),
+        ] else ...[
+          IconButton(
+            icon: const Icon(Icons.remove_circle_outline, color: Colors.black45),
+            onPressed: () => cart.decrementQuantity(product.id!),
+          ),
+          Text('${item.quantity}', style: const TextStyle(fontWeight: FontWeight.bold)),
+          IconButton(
+            icon: const Icon(Icons.add_circle, color: AppColors.primary),
+            onPressed: () => cart.incrementQuantity(product.id!),
+          ),
+        ],
         SizedBox(
           width: 64,
           child: Text(

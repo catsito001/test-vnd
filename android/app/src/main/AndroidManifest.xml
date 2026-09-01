@@ -4,10 +4,17 @@
 
   Este manifiesto asume el scaffold estándar generado por `flutter create`
   (mismo <application>/<activity> que trae cualquier proyecto Flutter
-  nuevo); lo único añadido a propósito para "Vende Móvil" son los permisos
+  nuevo); lo único añadido a propósito para "Ventas Cell" son los permisos
   y <uses-feature> de cámara/Bluetooth que pide la Parte 12 del prompt.
   Si ya tienes un AndroidManifest.xml propio, basta con copiar el bloque
   de <uses-permission>/<uses-feature> de aquí adentro del tuyo.
+
+  OJO: este archivo es solo de referencia/documentación. El build real
+  (build-apk.yml) regenera android/ desde cero con `flutter create` en
+  cada corrida y descarta este manifest, así que el `android:label` de
+  abajo NO es el que termina en el APK — ese lo fija
+  scripts/inject_manifest_permissions.py sobre el manifest recién
+  generado. Si cambias el nombre de la app, actualizá los dos lugares.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -62,7 +69,7 @@
         android:required="false" />
 
     <application
-        android:label="Vende Móvil"
+        android:label="Ventas Cell"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

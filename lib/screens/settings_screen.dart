@@ -17,6 +17,7 @@ import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import '../data/database.dart';
 import '../models/models.dart';
 import '../theme.dart';
+import '../utils/inventory_backup.dart';
 import '../utils/permissions.dart';
 import '../utils/utils.dart';
 
@@ -318,6 +319,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       _buildBusinessSection(),
                       _buildSubscriptionSection(),
+                      _buildBackupSection(),
                       _buildPaymentMethodsSection(),
                       _buildSellersSection(),
                       _buildCategoriesSection(),
@@ -411,7 +413,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // --- 3. Métodos de Pago (QR de Yape) -------------------------------------
+  // --- 3. Respaldo del Inventario (zip local) -------------------------------
+
+  Widget _buildBackupSection() {
+    return _SettingsSection(
+      icon: Icons.backup_outlined,
+      title: 'Respaldo del Inventario',
+      children: [
+        const Text(
+          'Mientras llega la nube (arriba), puedes exportar tus productos, categorías y '
+          'fotos a un archivo .zip para no perderlos si reinstalas la app, actualizas el '
+          'celular o cambias de equipo. Importar no borra lo que ya tienes: actualiza los '
+          'productos que coincidan (por código de barras o nombre) y agrega los que falten.',
+          style: TextStyle(color: Colors.black54, fontSize: 12),
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: () => exportInventoryZip(context),
+          icon: const Icon(Icons.ios_share),
+          label: const Text('Exportar Inventario (.zip)'),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: () async {
+            await importInventoryZip(context);
+            if (mounted) _load(); // refresca categorías por si el import agregó alguna
+          },
+          icon: const Icon(Icons.file_upload_outlined),
+          label: const Text('Importar Inventario (.zip)'),
+        ),
+      ],
+    );
+  }
+
+  // --- 4. Métodos de Pago (QR de Yape) -------------------------------------
 
   Widget _buildPaymentMethodsSection() {
     final hasQr = _yapeQrImagePath != null && _yapeQrImagePath!.isNotEmpty;
@@ -488,7 +523,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // --- 4. Vendedores -----------------------------------------------------
+  // --- 5. Vendedores -----------------------------------------------------
 
   Widget _buildSellersSection() {
     return _SettingsSection(
@@ -562,7 +597,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // --- 5. Categorías -----------------------------------------------------
+  // --- 6. Categorías -----------------------------------------------------
 
   Widget _buildCategoriesSection() {
     return _SettingsSection(
@@ -595,7 +630,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // --- 6. Impresora Bluetooth ----------------------------------------------
+  // --- 7. Impresora Bluetooth ----------------------------------------------
 
   Widget _buildPrinterSection() {
     final hasPrinter = _printerMacAddress != null && _printerMacAddress!.isNotEmpty;

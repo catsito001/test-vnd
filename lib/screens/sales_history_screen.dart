@@ -17,6 +17,7 @@ import '../data/database.dart';
 import '../models/models.dart';
 import '../theme.dart';
 import '../utils/printing.dart';
+import '../utils/sales_export.dart';
 import '../utils/utils.dart';
 
 final DateFormat _dateFormat = DateFormat('dd/MM/yyyy HH:mm');
@@ -111,10 +112,14 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
     if (changed == true) _load();
   }
 
-  void _exportPlaceholder() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Exportar reporte: próximamente.')),
-    );
+  void _exportExcel() {
+    const labels = {
+      _RangeTab.hoy: 'hoy',
+      _RangeTab.semana: 'semana',
+      _RangeTab.mes: 'mes',
+      _RangeTab.todo: 'todo',
+    };
+    exportSalesExcel(context, sales: _sales, rangeLabel: labels[_selectedTab]!);
   }
 
   @override
@@ -125,8 +130,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
         actions: [
           IconButton(
             icon: const Icon(Icons.file_download_outlined),
-            tooltip: 'Exportar reporte',
-            onPressed: _exportPlaceholder,
+            tooltip: 'Exportar a Excel',
+            onPressed: _exportExcel,
           ),
         ],
         bottom: TabBar(
@@ -524,7 +529,9 @@ class _DetailLine extends StatelessWidget {
               children: [
                 Text(item.productName, style: const TextStyle(fontWeight: FontWeight.w600)),
                 Text(
-                  '${item.quantity} x ${formatCurrency(item.unitPrice)}',
+                  item.soldByWeight
+                      ? '${formatWeight(item.quantity)} x ${formatCurrency(item.unitPrice)}/kg'
+                      : '${item.quantity} x ${formatCurrency(item.unitPrice)}',
                   style: const TextStyle(color: Colors.black54, fontSize: 12),
                 ),
               ],

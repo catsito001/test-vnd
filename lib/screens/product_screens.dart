@@ -14,6 +14,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../data/database.dart';
 import '../models/models.dart';
 import '../theme.dart';
+import '../utils/camera_error_view.dart';
 import '../utils/permissions.dart';
 import '../utils/utils.dart';
 
@@ -41,6 +42,14 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
       BarcodeFormat.upcA,
       BarcodeFormat.code128,
     ],
+    // Fix cámara (Inventario > Código del nuevo producto): con autoStart
+    // en true (el default), el propio widget MobileScanner intenta
+    // arrancar la cámara apenas se monta, al mismo tiempo que el chequeo
+    // de permiso de más abajo también puede disparar un start(). Esa
+    // carrera es justo lo que tira "MobileScannerController is already
+    // running". Con autoStart:false, el único que arranca la cámara es
+    // _startCamera() acá abajo.
+    autoStart: false,
   );
   final TextEditingController _manualController = TextEditingController();
   bool _manualMode = false;
@@ -73,6 +82,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
       _checkingCameraPermission = false;
       if (!granted) _manualMode = true;
     });
+    if (granted) await _startCamera();
   }
 
   void _onDetect(BarcodeCapture capture) {
@@ -82,6 +92,29 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
     _handled = true;
     Navigator.of(context).pop(value);
   }
+
+  /// Único lugar que llama a `_controller.start()`. El guard de
+  /// `isRunning` evita pedir un segundo arranque si ya está corriendo, y
+  /// si igual llega a chocar con "ya estaba corriendo" (carrera rara),
+  /// hace un stop+start limpio en vez de dejar ese error en pantalla.
+  Future<void> _startCamera() async {
+    try {
+      if (_controller.value.isRunning) return;
+      await _controller.start();
+    } on MobileScannerException catch (e) {
+      if (e.errorCode == MobileScannerErrorCode.controllerAlreadyInitialized) {
+        try {
+          await _controller.stop();
+          await _controller.start();
+        } catch (_) {
+          // Si tampoco arranca así, el errorBuilder muestra el motivo real.
+        }
+      }
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _retryCamera() => _startCamera();
 
   void _confirmManual() {
     final value = _manualController.text.trim();
@@ -112,7 +145,16 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        MobileScanner(controller: _controller, onDetect: _onDetect),
+        MobileScanner(
+          controller: _controller,
+          onDetect: _onDetect,
+          errorBuilder: (context, error) => CameraErrorView(
+            error: error,
+            onRetry: _retryCamera,
+            onFallback: () => setState(() => _manualMode = true),
+            fallbackLabel: 'Ingresar manualmente',
+          ),
+        ),
         Center(
           child: Container(
             width: 260,
@@ -455,7 +497,7 @@ class _ProductTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                formatCurrency(product.salePrice),
+                product.soldByWeight ? '${formatCurrency(product.salePrice)}/kg' : formatCurrency(product.salePrice),
                 style: const TextStyle(color: AppColors.success, fontWeight: FontWeight.w600),
               ),
               Text(
@@ -467,7 +509,10 @@ class _ProductTile extends StatelessWidget {
             ],
           ),
         ),
-        trailing: Text('${product.currentStock} uds', style: const TextStyle(fontWeight: FontWeight.w600)),
+        trailing: Text(
+          product.soldByWeight ? formatWeight(product.currentStock) : '${product.currentStock} uds',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
       ),
     );
   }
@@ -508,12 +553,28 @@ class _NewProductScreenState extends State<NewProductScreen> {
   String? _photoPath;
   List<Category> _categories = [];
 
+  /// Producto a granel (fruta, verdura, etc.): precio por kilo y stock en
+  /// kg en vez de unidades. Ver `Product.soldByWeight`.
+  bool _soldByWeight = false;
+
   bool get _isEditing => widget.product != null;
+
+  /// Texto inicial del campo de stock: en kg (con decimales) si el
+  /// producto ya es por peso, o el entero de unidades si no.
+  String _stockFieldText(int? grams, bool byWeight) {
+    final value = grams ?? 0;
+    if (!byWeight) return value.toString();
+    var text = (value / 1000).toStringAsFixed(3);
+    text = text.replaceFirst(RegExp(r'0+$'), '');
+    text = text.replaceFirst(RegExp(r'\.$'), '');
+    return text;
+  }
 
   @override
   void initState() {
     super.initState();
     final product = widget.product;
+    _soldByWeight = product?.soldByWeight ?? false;
     _barcodeController = TextEditingController(
       text: product != null ? product.barcodes.join(', ') : (widget.initialBarcode ?? ''),
     );
@@ -523,8 +584,8 @@ class _NewProductScreenState extends State<NewProductScreen> {
         TextEditingController(text: product != null ? product.purchasePrice.toStringAsFixed(2) : '');
     _salePriceController =
         TextEditingController(text: product != null ? product.salePrice.toStringAsFixed(2) : '');
-    _stockController = TextEditingController(text: (product?.currentStock ?? 0).toString());
-    _minStockController = TextEditingController(text: (product?.minStock ?? 0).toString());
+    _stockController = TextEditingController(text: _stockFieldText(product?.currentStock, _soldByWeight));
+    _minStockController = TextEditingController(text: _stockFieldText(product?.minStock, _soldByWeight));
     _categoryId = product?.categoryId;
     _photoPath = product?.photoPath;
     _loadCategories();
@@ -607,6 +668,12 @@ class _NewProductScreenState extends State<NewProductScreen> {
         .where((b) => b.isNotEmpty)
         .toList();
 
+    int parseStock(TextEditingController controller) {
+      if (!_soldByWeight) return int.tryParse(controller.text) ?? 0;
+      final kg = double.tryParse(controller.text.replaceAll(',', '.')) ?? 0;
+      return (kg * 1000).round();
+    }
+
     final product = Product(
       id: widget.product?.id,
       name: _nameController.text.trim(),
@@ -615,9 +682,10 @@ class _NewProductScreenState extends State<NewProductScreen> {
       categoryId: _categoryId,
       purchasePrice: double.tryParse(_purchasePriceController.text.replaceAll(',', '.')) ?? 0,
       salePrice: double.tryParse(_salePriceController.text.replaceAll(',', '.')) ?? 0,
-      currentStock: int.tryParse(_stockController.text) ?? 0,
-      minStock: int.tryParse(_minStockController.text) ?? 0,
+      currentStock: parseStock(_stockController),
+      minStock: parseStock(_minStockController),
       photoPath: _photoPath,
+      soldByWeight: _soldByWeight,
     );
 
     Product savedProduct;
@@ -705,15 +773,26 @@ class _NewProductScreenState extends State<NewProductScreen> {
               items: [for (final c in _categories) DropdownMenuItem(value: c.id, child: Text(c.name))],
               onChanged: (v) => setState(() => _categoryId = v),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 4),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _soldByWeight,
+              onChanged: (v) => setState(() => _soldByWeight = v),
+              title: const Text('Se vende por peso (kg)'),
+              subtitle: const Text(
+                'Para productos a granel (fruta, verdura...). El precio será por kilo '
+                'y al venderlo se va a pedir el peso en kg o g.',
+              ),
+            ),
+            const SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
                   child: TextFormField(
                     controller: _purchasePriceController,
-                    decoration: const InputDecoration(
-                      labelText: 'Precio Compra (S/)',
-                      prefixIcon: Icon(Icons.sell_outlined),
+                    decoration: InputDecoration(
+                      labelText: _soldByWeight ? 'Precio Compra /kg (S/)' : 'Precio Compra (S/)',
+                      prefixIcon: const Icon(Icons.sell_outlined),
                     ),
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   ),
@@ -722,9 +801,9 @@ class _NewProductScreenState extends State<NewProductScreen> {
                 Expanded(
                   child: TextFormField(
                     controller: _salePriceController,
-                    decoration: const InputDecoration(
-                      labelText: 'Precio Venta (S/)',
-                      prefixIcon: Icon(Icons.attach_money),
+                    decoration: InputDecoration(
+                      labelText: _soldByWeight ? 'Precio Venta /kg (S/)' : 'Precio Venta (S/)',
+                      prefixIcon: const Icon(Icons.attach_money),
                     ),
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     validator: (v) {
@@ -741,22 +820,22 @@ class _NewProductScreenState extends State<NewProductScreen> {
                 Expanded(
                   child: TextFormField(
                     controller: _stockController,
-                    decoration: const InputDecoration(
-                      labelText: 'Stock Actual',
-                      prefixIcon: Icon(Icons.numbers),
+                    decoration: InputDecoration(
+                      labelText: _soldByWeight ? 'Stock Actual (kg)' : 'Stock Actual',
+                      prefixIcon: const Icon(Icons.numbers),
                     ),
-                    keyboardType: TextInputType.number,
+                    keyboardType: TextInputType.numberWithOptions(decimal: _soldByWeight),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: TextFormField(
                     controller: _minStockController,
-                    decoration: const InputDecoration(
-                      labelText: 'Stock Mínimo',
-                      prefixIcon: Icon(Icons.warning_amber_outlined),
+                    decoration: InputDecoration(
+                      labelText: _soldByWeight ? 'Stock Mínimo (kg)' : 'Stock Mínimo',
+                      prefixIcon: const Icon(Icons.warning_amber_outlined),
                     ),
-                    keyboardType: TextInputType.number,
+                    keyboardType: TextInputType.numberWithOptions(decimal: _soldByWeight),
                   ),
                 ),
               ],
@@ -812,19 +891,16 @@ class _LinkExistingProductSheetState extends State<_LinkExistingProductSheet> {
   Future<void> _link(Product product) async {
     await _db.addBarcodeToProduct(product.id!, widget.barcode);
     if (!mounted) return;
-    // Devolvemos el producto ya con el código nuevo incluido (mismo
-    // resultado que deja `addBarcodeToProduct` en la base de datos), para
-    // que quien abrió este sheet pueda usarlo directo sin otra consulta.
-    final updated = product.matchesBarcode(widget.barcode)
-        ? product
-        : product.copyWith(barcodes: [...product.barcodes, widget.barcode.trim()]);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Código vinculado a "${product.name}"'),
         backgroundColor: AppColors.success,
       ),
     );
-    Navigator.of(context).pop(updated);
+    // Devolvemos el producto (con el código nuevo ya incluido) en vez de
+    // solo `true`, para que quien llamó al sheet pueda agregarlo al
+    // carrito directamente sin tener que volver a escanear el código.
+    Navigator.of(context).pop(product.copyWith(barcodes: [...product.barcodes, widget.barcode]));
   }
 
   @override
@@ -878,7 +954,7 @@ class _LinkExistingProductSheetState extends State<_LinkExistingProductSheet> {
                           ),
                           title: Text(product.name, style: const TextStyle(fontWeight: FontWeight.bold)),
                           subtitle: Text(
-                            'Stock: ${product.currentStock} | Cód: $truncated',
+                            'Stock: ${product.soldByWeight ? formatWeight(product.currentStock) : product.currentStock} | Cód: $truncated',
                             style: const TextStyle(fontSize: 12, color: Colors.black54),
                           ),
                           trailing: const Icon(Icons.link, color: AppColors.primary),

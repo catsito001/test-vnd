@@ -1,4 +1,4 @@
-# Vende Móvil — estructura del proyecto
+# Ventas Cell — estructura del proyecto
 
 Reorganizado en carpetas de un solo nivel (nada anidado más allá de
 `lib/<carpeta>/<archivo>.dart`), agrupando los archivos según lo que ya

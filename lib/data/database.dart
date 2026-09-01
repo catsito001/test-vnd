@@ -27,7 +27,7 @@ class DatabaseHelper {
     final path = join(dbPath, 'vende_movil.db');
     return openDatabase(
       path,
-      version: 2,
+      version: 3,
       onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -36,9 +36,16 @@ class DatabaseHelper {
 
   /// v1 -> v2: agrega `activeSellerId` a `app_settings` (vendedor activo,
   /// usado como "Atendido por" por defecto en Parte 7/8).
+  /// v2 -> v3: agrega `soldByWeight` a `products` y `sale_items` (venta
+  /// por peso: kg/g en vez de unidades, pensada para productos a granel
+  /// sin código de barras).
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await db.execute('ALTER TABLE app_settings ADD COLUMN activeSellerId INTEGER');
+    }
+    if (oldVersion < 3) {
+      await db.execute('ALTER TABLE products ADD COLUMN soldByWeight INTEGER NOT NULL DEFAULT 0');
+      await db.execute('ALTER TABLE sale_items ADD COLUMN soldByWeight INTEGER NOT NULL DEFAULT 0');
     }
   }
 
@@ -62,6 +69,7 @@ class DatabaseHelper {
         currentStock INTEGER NOT NULL DEFAULT 0,
         minStock INTEGER NOT NULL DEFAULT 0,
         photoPath TEXT,
+        soldByWeight INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (categoryId) REFERENCES categories (id) ON DELETE SET NULL
       )
     ''');
@@ -97,6 +105,7 @@ class DatabaseHelper {
         unitCost REAL NOT NULL,
         quantity INTEGER NOT NULL,
         subtotal REAL NOT NULL,
+        soldByWeight INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (saleId) REFERENCES sales (id) ON DELETE CASCADE,
         FOREIGN KEY (productId) REFERENCES products (id)
       )

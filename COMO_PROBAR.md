@@ -1,4 +1,4 @@
-# Cómo probar Vende Móvil sin instalar Android Studio
+# Cómo probar Ventas Cell sin instalar Android Studio
 
 La compilación entera pasa en los servidores de GitHub (gratis e ilimitado
 en repos públicos). Tú solo subes archivos, esperas unos minutos y bajas un
@@ -73,7 +73,7 @@ git push -u origin main
 2. Al abrir el archivo, Android va a pedirte permiso para **"instalar apps
    de orígenes desconocidos"** para esa app (Drive, WhatsApp, el explorador
    de archivos, la que hayas usado) — actívalo solo para esa vez.
-3. Toca **Instalar**. Listo, ya tienes Vende Móvil funcionando de verdad en
+3. Toca **Instalar**. Listo, ya tienes Ventas Cell funcionando de verdad en
    tu teléfono: cámara, carrito, inventario, checkout, historial y ajustes.
 
 ### Sobre la impresora térmica

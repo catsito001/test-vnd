@@ -18,8 +18,14 @@ como `build.gradle.kts` (Kotlin DSL, default en proyectos Flutter nuevos).
    esos permisos nuevos y sigue pidiendo los clásicos.
 
 3. **`compileSdkVersion` / `compileSdk`**: debe ser igual o mayor al
-   `targetSdk` de arriba. También el default de `flutter.compileSdkVersion`
-   ya cumple esto.
+   `targetSdk` de arriba. Con el default de `flutter.compileSdkVersion`
+   alcanza. Si igual te sale un error de build tipo "requires... compile
+   against version 36... currently compiled against android-34" apuntando
+   a algún plugin puntual (no a tu app), no es la app: es que ESE plugin
+   trae su propio `compileSdk` fijo y viejo en su propio `build.gradle`
+   (nos pasó con `file_picker` antes de la 10.3.3 — lo arreglaron ahí
+   mismo). La solución real es subir la versión de ese paquete en
+   `pubspec.yaml`, no tocar el `compileSdk` de este proyecto.
 
 4. No hace falta tocar nada más en Gradle para `permission_handler`: el
    plugin resuelve sus propios permisos nativos automáticamente al compilar

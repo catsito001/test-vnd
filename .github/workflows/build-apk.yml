@@ -39,6 +39,11 @@ jobs:
           cp -r /tmp/scaffold/android android
           python3 scripts/inject_manifest_permissions.py
 
+      # file_picker (vía flutter_plugin_android_lifecycle) ya pide
+      # compileSdk >= 36; ver scripts/patch_compile_sdk.py.
+      - name: Ajustar compileSdk (plugins que ya piden compileSdk 36)
+        run: python3 scripts/patch_compile_sdk.py
+
       - name: Instalar dependencias
         run: flutter pub get
 

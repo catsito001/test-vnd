@@ -188,7 +188,11 @@ Future<List<int>> _buildTicketBytes(
       ),
     ]);
     // Segunda línea pequeña con cantidad y precio unitario.
-    bytes += generator.text('  ${item.quantity} x ${formatCurrency(item.unitPrice)}');
+    bytes += generator.text(
+      item.soldByWeight
+          ? '  ${formatWeight(item.quantity)} x ${formatCurrency(item.unitPrice)}/kg'
+          : '  ${item.quantity} x ${formatCurrency(item.unitPrice)}',
+    );
   }
 
   bytes += generator.hr();

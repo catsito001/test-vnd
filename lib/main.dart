@@ -20,13 +20,10 @@ class VendeMovilApp extends StatelessWidget {
     return ChangeNotifierProvider(
       create: (_) => CartProvider(),
       child: MaterialApp(
-        title: 'Vende Móvil',
+        title: 'Ventas Cell',
         debugShowCheckedModeBanner: false,
         theme: appTheme,
-        // Parte 13 (fix): necesario para que ScannerHomeScreen sepa cuándo
-        // queda tapada por otra pantalla y pueda pausar su cámara (ver
-        // utils/navigation.dart).
-        navigatorObservers: [appRouteObserver],
+        navigatorObservers: [routeObserver],
         home: const ScannerHomeScreen(),
       ),
     );
